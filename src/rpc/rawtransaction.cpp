@@ -215,7 +215,7 @@ static std::vector<RPCArg> CreateTxDoc()
                     },
                 },
             },
-        },
+         RPCArgOptions{.skip_type_check = true}},
         {"locktime", RPCArg::Type::NUM, RPCArg::Default{0}, "Raw locktime. Non-0 value also locktime-activates inputs"},
     };
 }
@@ -660,7 +660,6 @@ static RPCHelpMan getassetunlockstatuses()
     std::optional<CCreditPool> poolCL{std::nullopt};
     std::optional<CCreditPool> poolOnTip{std::nullopt};
     std::optional<int> nSpecificCoreHeight{std::nullopt};
-
     if (!request.params[1].isNull()) {
         nSpecificCoreHeight = request.params[1].getInt<int>();
         if (nSpecificCoreHeight.value() < 0 || nSpecificCoreHeight.value() > chainman.ActiveChain().Height()) {
@@ -754,13 +753,6 @@ static RPCHelpMan createrawtransaction()
                 },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
 {
-    RPCTypeCheck(request.params, {
-        UniValue::VARR,
-        UniValueType(), // ARR or OBJ, checked later
-        UniValue::VNUM,
-        }, true
-    );
-
     CMutableTransaction rawTx = ConstructTransaction(request.params[0], request.params[1], request.params[2]);
 
     return EncodeHexTx(CTransaction(rawTx));
@@ -785,8 +777,6 @@ static RPCHelpMan decoderawtransaction()
                 },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
 {
-    RPCTypeCheck(request.params, {UniValue::VSTR});
-
     CMutableTransaction mtx;
 
     if (!DecodeHexTx(mtx, request.params[0].get_str()))
@@ -823,8 +813,6 @@ static RPCHelpMan decodescript()
         },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
 {
-    RPCTypeCheck(request.params, {UniValue::VSTR});
-
     UniValue r(UniValue::VOBJ);
     CScript script;
     if (request.params[0].get_str().size() > 0){
@@ -996,8 +984,6 @@ static RPCHelpMan signrawtransactionwithkey()
                 },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
 {
-    RPCTypeCheck(request.params, {UniValue::VSTR, UniValue::VARR, UniValue::VARR, UniValue::VSTR}, true);
-
     CMutableTransaction mtx;
     if (!DecodeHexTx(mtx, request.params[0].get_str())) {
         throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "TX decode failed. Make sure the tx has at least one input.");
@@ -1187,8 +1173,6 @@ static RPCHelpMan decodepsbt()
                 },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
 {
-    RPCTypeCheck(request.params, {UniValue::VSTR});
-
     // Unserialize the transactions
     PartiallySignedTransaction psbtx;
     std::string error;
@@ -1467,8 +1451,6 @@ static RPCHelpMan combinepsbt()
         },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
 {
-    RPCTypeCheck(request.params, {UniValue::VARR}, true);
-
     // Unserialize the transactions
     std::vector<PartiallySignedTransaction> psbtxs;
     UniValue txs = request.params[0].get_array();
@@ -1522,8 +1504,6 @@ static RPCHelpMan finalizepsbt()
                 },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
 {
-    RPCTypeCheck(request.params, {UniValue::VSTR, UniValue::VBOOL}, true);
-
     // Unserialize the transactions
     PartiallySignedTransaction psbtx;
     std::string error;
@@ -1571,13 +1551,6 @@ static RPCHelpMan createpsbt()
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
 {
 
-    RPCTypeCheck(request.params, {
-        UniValue::VARR,
-        UniValueType(), // ARR or OBJ, checked later
-        UniValue::VNUM,
-        }, true
-    );
-
     CMutableTransaction rawTx = ConstructTransaction(request.params[0], request.params[1], request.params[2]);
 
     // Make a blank psbt
@@ -1620,8 +1593,6 @@ static RPCHelpMan converttopsbt()
                 },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
 {
-    RPCTypeCheck(request.params, {UniValue::VSTR, UniValue::VBOOL, UniValue::VBOOL}, true);
-
     // parse hex string from parameter
     CMutableTransaction tx;
     bool permitsigdata = request.params[1].isNull() ? false : request.params[1].get_bool();
@@ -1678,8 +1649,6 @@ static RPCHelpMan utxoupdatepsbt()
             },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
 {
-    RPCTypeCheck(request.params, {UniValue::VSTR, UniValue::VARR}, true);
-
     // Unserialize the transactions
     PartiallySignedTransaction psbtx;
     std::string error;
@@ -1763,8 +1732,6 @@ static RPCHelpMan joinpsbts()
             },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
 {
-    RPCTypeCheck(request.params, {UniValue::VARR}, true);
-
     // Unserialize the transactions
     std::vector<PartiallySignedTransaction> psbtxs;
     UniValue txs = request.params[0].get_array();
@@ -1868,8 +1835,6 @@ static RPCHelpMan analyzepsbt()
             },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
 {
-    RPCTypeCheck(request.params, {UniValue::VSTR});
-
     // Unserialize the transaction
     PartiallySignedTransaction psbtx;
     std::string error;
