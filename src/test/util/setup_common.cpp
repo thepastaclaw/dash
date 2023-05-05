@@ -684,4 +684,3 @@ CBlock getBlock13b8a()
     stream >> block;
     return block;
 }
-
