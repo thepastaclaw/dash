@@ -59,7 +59,6 @@ int64_t GetTimeMicros()
 {
     return int64_t{GetSystemTime<std::chrono::microseconds>().count()};
 }
-
 int64_t GetTime() { return GetTime<std::chrono::seconds>().count(); }
 
 std::string FormatISO8601DateTime(int64_t nTime)
