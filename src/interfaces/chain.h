@@ -78,7 +78,6 @@ public:
     CBlock* m_data = nullptr;
     mutable bool found = false;
 };
-
 //! Interface giving clients (wallet processes, maybe other analysis tools in
 //! the future) ability to access to the chain state, receive notifications,
 //! estimate fees, and submit transactions.
