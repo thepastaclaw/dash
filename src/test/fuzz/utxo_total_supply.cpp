@@ -147,12 +147,12 @@ FUZZ_TARGET(utxo_total_supply)
 
                 const auto prev_utxo_stats = utxo_stats;
                 if (was_valid) {
-                    circulation += GetBlockSubsidy(ActiveTip(), Params().GetConsensus());
-
                     if (duplicate_coinbase_height == ActiveHeight()) {
                         // we mined the duplicate coinbase
                         assert(current_block->vtx.at(0)->vin.at(0).scriptSig == duplicate_coinbase_script);
                     }
+
+                    circulation += GetBlockSubsidy(ActiveTip(), Params().GetConsensus());
                 }
 
                 UpdateUtxoStats();
