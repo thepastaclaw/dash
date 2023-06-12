@@ -697,15 +697,19 @@ public:
     void initLogging() override { InitLogging(*Assert(m_context->args)); }
     void initParameterInteraction() override { InitParameterInteraction(*Assert(m_context->args)); }
     bilingual_str getWarnings() override { return GetWarnings(true); }
+    int getExitStatus() override { return Assert(m_context)->exit_status.load(); }
     uint64_t getLogCategories() override { return LogInstance().GetCategoryMask(); }
     bool baseInitialize() override
     {
-        return AppInitBasicSetup(gArgs) && AppInitParameterInteraction(gArgs) && AppInitSanityChecks() &&
+        return AppInitBasicSetup(gArgs, Assert(m_context)->exit_status) && AppInitParameterInteraction(gArgs) && AppInitSanityChecks() &&
                AppInitLockDataDirectory() && AppInitInterfaces(*m_context);
     }
     bool appInitMain(interfaces::BlockAndHeaderTipInfo* tip_info) override
     {
-        return AppInitMain(*m_context, tip_info);
+        if (AppInitMain(*m_context, tip_info)) return true;
+        // Error during initialization, set exit status before continue
+        m_context->exit_status.store(EXIT_FAILURE);
+        return false;
     }
     void appShutdown() override
     {

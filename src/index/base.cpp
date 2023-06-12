@@ -25,10 +25,7 @@ constexpr auto SYNC_LOCATOR_WRITE_INTERVAL{30s};
 
 void BaseIndex::FatalErrorImpl(const std::string& message)
 {
-    SetMiscWarning(Untranslated(message));
-    LogPrintf("*** %s\n", message);
-    AbortError(_("A fatal internal error occurred, see debug.log for details"));
-    StartShutdown();
+    AbortNode(message);
 }
 
 BaseIndex::DB::DB(const fs::path& path, size_t n_cache_size, bool f_memory, bool f_wipe, bool f_obfuscate) :
