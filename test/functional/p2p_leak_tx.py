@@ -29,6 +29,7 @@ class P2PLeakTxTest(BitcoinTestFramework):
         self.generate(miniwallet, 1)
         self.generate(gen_node, 100)
 
+        self.nodes[0].disconnect_p2ps()
         inbound_peer = self.nodes[0].add_p2p_connection(P2PNode())  # An "attacking" inbound peer
 
         MAX_REPEATS = 100
