@@ -28,6 +28,7 @@
 #include <string>
 #include <type_traits>
 #include <utility>
+#include <string_view>
 #include <variant>
 #include <vector>
 
@@ -103,10 +104,10 @@ void RPCTypeCheckObj(const UniValue& o,
  * Utilities: convert hex-encoded Values
  * (throws error if not hex).
  */
-uint256 ParseHashV(const UniValue& v, std::string strName);
-uint256 ParseHashO(const UniValue& o, std::string strKey);
-std::vector<unsigned char> ParseHexV(const UniValue& v, std::string strName);
-std::vector<unsigned char> ParseHexO(const UniValue& o, std::string strKey);
+uint256 ParseHashV(const UniValue& v, std::string_view name);
+uint256 ParseHashO(const UniValue& o, std::string_view strKey);
+std::vector<unsigned char> ParseHexV(const UniValue& v, std::string_view name);
+std::vector<unsigned char> ParseHexO(const UniValue& o, std::string_view strKey);
 
 bool ParseBoolV(const UniValue& v, const std::string &strName);
 
