@@ -30,6 +30,7 @@ public:
         TransactionTypeToBit(TransactionRecord::CoinJoinCreateDenominations) |
         TransactionTypeToBit(TransactionRecord::CoinJoinMakeCollaterals) |
         TransactionTypeToBit(TransactionRecord::CoinJoinMixing) |
+        TransactionTypeToBit(TransactionRecord::DataTransaction) |
         TransactionTypeToBit(TransactionRecord::DustReceive) |
         TransactionTypeToBit(TransactionRecord::RecvWithCoinJoin);
     /** Type filter bit field (all types) */
