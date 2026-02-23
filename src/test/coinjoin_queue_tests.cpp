@@ -12,6 +12,8 @@
 
 #include <boost/test/unit_test.hpp>
 
+#include <limits>
+
 BOOST_FIXTURE_TEST_SUITE(coinjoin_queue_tests, TestingSetup)
 
 static CBLSSecretKey MakeSecretKey()
@@ -94,6 +96,21 @@ BOOST_AUTO_TEST_CASE(queue_timestamp_validation)
     // Test timestamp too far in past (outside COINJOIN_QUEUE_TIMEOUT = 30)
     q.nTime = current_time - 60; // 60 seconds ago
     BOOST_CHECK(q.IsTimeOutOfBounds(current_time));
+}
+
+BOOST_AUTO_TEST_CASE(queue_timestamp_helper_extremes)
+{
+    const int64_t min = std::numeric_limits<int64_t>::min();
+    const int64_t max = std::numeric_limits<int64_t>::max();
+
+    BOOST_CHECK(CCoinJoinQueue::IsTimeOutOfBounds(max, min, COINJOIN_QUEUE_TIMEOUT));
+    BOOST_CHECK(CCoinJoinQueue::IsTimeOutOfBounds(min, max, COINJOIN_QUEUE_TIMEOUT));
+
+    BOOST_CHECK(CCoinJoinQueue::IsTimeOutOfBounds(max, max, -1));
+    BOOST_CHECK(CCoinJoinQueue::IsTimeOutOfBounds(min, min, -1));
+
+    BOOST_CHECK(!CCoinJoinQueue::IsTimeOutOfBounds(max, max, 0));
+    BOOST_CHECK(!CCoinJoinQueue::IsTimeOutOfBounds(min, min, 0));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

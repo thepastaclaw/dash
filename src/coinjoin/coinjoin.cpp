@@ -8,6 +8,7 @@
 #include <chainparams.h>
 #include <txmempool.h>
 #include <util/moneystr.h>
+#include <util/overflow.h>
 #include <util/system.h>
 #include <util/translation.h>
 #include <validation.h>
@@ -55,8 +56,33 @@ bool CCoinJoinQueue::CheckSignature(const CBLSPublicKey& blsPubKey) const
 
 bool CCoinJoinQueue::IsTimeOutOfBounds(int64_t current_time) const
 {
-    return current_time - nTime > COINJOIN_QUEUE_TIMEOUT ||
-           nTime - current_time > COINJOIN_QUEUE_TIMEOUT;
+    return IsTimeOutOfBounds(nTime, current_time, COINJOIN_QUEUE_TIMEOUT);
+}
+
+bool CCoinJoinQueue::IsTimeOutOfBounds(int64_t queue_time, int64_t current_time, int64_t timeout_window)
+{
+    // Compare against `time + timeout_window` to avoid signed subtraction overflow.
+    const auto current_plus_timeout = CheckedAdd(current_time, timeout_window);
+    if (current_plus_timeout.has_value()) {
+        if (queue_time > current_plus_timeout.value()) {
+            return true;
+        }
+    } else if (timeout_window < 0) {
+        // Mathematical result is below int64_t minimum.
+        return true;
+    }
+
+    const auto queue_plus_timeout = CheckedAdd(queue_time, timeout_window);
+    if (queue_plus_timeout.has_value()) {
+        if (current_time > queue_plus_timeout.value()) {
+            return true;
+        }
+    } else if (timeout_window < 0) {
+        // Mathematical result is below int64_t minimum.
+        return true;
+    }
+
+    return false;
 }
 
 [[nodiscard]] std::string CCoinJoinQueue::ToString() const

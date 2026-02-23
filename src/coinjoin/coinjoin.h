@@ -213,6 +213,9 @@ public:
     /// Check if we have a valid Masternode address
     [[nodiscard]] bool CheckSignature(const CBLSPublicKey& blsPubKey) const;
 
+    /// Pure timeout bounds helper that does not depend on global time state.
+    [[nodiscard]] static bool IsTimeOutOfBounds(int64_t queue_time, int64_t current_time, int64_t timeout_window);
+
     /// Check if a queue is too old or too far into the future
     [[nodiscard]] bool IsTimeOutOfBounds(int64_t current_time = GetAdjustedTime()) const;
 
