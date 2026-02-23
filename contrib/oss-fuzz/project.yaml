@@ -1,0 +1,14 @@
+# Template for submitting Dash Core to OSS-Fuzz.
+# See: https://google.github.io/oss-fuzz/getting-started/new-project-guide/
+homepage: "https://www.dash.org/"
+main_repo: "https://github.com/dashpay/dash"
+language: c++
+primary_contact:
+  - "security@dash.org"
+sanitizers:
+  - address
+  - undefined
+fuzzing_engines:
+  - libfuzzer
+architectures:
+  - x86_64

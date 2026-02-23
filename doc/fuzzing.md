@@ -332,6 +332,18 @@ Read the [Eclipser documentation for v1.x](https://github.com/SoftSec-KAIST/Ecli
 
 # OSS-Fuzz
 
-Bitcoin Core participates in Google's [OSS-Fuzz](https://github.com/google/oss-fuzz/tree/master/projects/bitcoin-core)
-program, which includes a dashboard of [publicly disclosed vulnerabilities](https://bugs.chromium.org/p/oss-fuzz/issues/list).
-For more details, see [Bitcoin's OSS-fuzz](https://github.com/bitcoin/bitcoin/tree/master/doc/fuzzing.md)
+Dash Core keeps an OSS-Fuzz integration template in this repository under
+[`contrib/oss-fuzz/`](../contrib/oss-fuzz/).
+
+At the time of writing, Dash Core is not enrolled as a standalone OSS-Fuzz
+project in `google/oss-fuzz`.
+
+The template includes:
+
+- [`contrib/oss-fuzz/README.md`](../contrib/oss-fuzz/README.md): scope,
+  status, and local usage
+- [`contrib/oss-fuzz/build.sh`](../contrib/oss-fuzz/build.sh): build script
+  that compiles `src/test/fuzz/fuzz`, enumerates fuzz targets, and emits
+  per-target wrappers in `$OUT`
+- [`contrib/oss-fuzz/project.yaml`](../contrib/oss-fuzz/project.yaml):
+  project metadata template for OSS-Fuzz submission
