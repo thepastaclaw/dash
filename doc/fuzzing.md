@@ -84,6 +84,11 @@ $ FUZZ=address_deserialize_v2 src/test/fuzz/fuzz -runs=1 fuzz_seed_corpus/addres
 
 The project's collection of seed corpora is found in the [`bitcoin-core/qa-assets`](https://github.com/bitcoin-core/qa-assets) repo.
 
+Dash-specific deterministic corpus generation tooling is available under
+[`contrib/fuzz/`](../contrib/fuzz/). See
+[`contrib/fuzz/README.md`](../contrib/fuzz/README.md) for instructions to
+generate target corpus directories and validate manifest target mappings.
+
 To fuzz `process_message` using the [`bitcoin-core/qa-assets`](https://github.com/bitcoin-core/qa-assets) seed corpus:
 
 ```sh
