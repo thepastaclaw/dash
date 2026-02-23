@@ -8,14 +8,17 @@ import configparser
 from enum import Enum
 import io
 import json
+import os
 import random
 import struct
+import tempfile
 import time
 
 from test_framework.test_framework import (
     DashTestFramework,
     MasternodeInfo,
 )
+from test_framework.netutil import test_unix_socket
 from test_framework.p2p import P2PInterface
 from test_framework.util import (
     assert_equal,
@@ -111,12 +114,19 @@ class DashZMQTest (DashTestFramework):
     def set_test_params(self):
         self.set_dash_test_params(5, 4)
 
-        # That's where the zmq publisher will listen for subscriber
-        self.zmq_port_base = p2p_port(self.num_nodes + 1)
-        self.address = f"tcp://127.0.0.1:{self.zmq_port_base}"
+        self.zmq_socket_path = None
+        if test_unix_socket():
+            self.zmq_socket_path = tempfile.NamedTemporaryFile().name
+            self.address = f"ipc://{self.zmq_socket_path}"
+            zmq_bind_address = f"unix:{self.zmq_socket_path}"
+        else:
+            # Fallback for platforms without AF_UNIX support.
+            self.zmq_port_base = p2p_port(self.num_nodes + 1)
+            self.address = f"tcp://127.0.0.1:{self.zmq_port_base}"
+            zmq_bind_address = self.address
 
         # node0 creates all available ZMQ publisher
-        node0_extra_args = [f"-zmqpub{pub.value}={self.address}" for pub in ZMQPublisher]
+        node0_extra_args = [f"-zmqpub{pub.value}={zmq_bind_address}" for pub in ZMQPublisher]
         node0_extra_args.append("-whitelist=127.0.0.1")
         node0_extra_args.append("-watchquorums")  # have to watch quorums to receive recsigs and trigger zmq
 
@@ -169,6 +179,8 @@ class DashZMQTest (DashTestFramework):
             # Destroy the ZMQ context.
             self.log.debug("Destroying ZMQ context")
             self.zmq_context.destroy(linger=None)
+            if self.zmq_socket_path and os.path.exists(self.zmq_socket_path):
+                os.unlink(self.zmq_socket_path)
 
     def generate_blocks(self, num_blocks):
         mninfos_online = self.mninfo.copy()
