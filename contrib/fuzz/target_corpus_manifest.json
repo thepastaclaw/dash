@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "targets": [
+    {
+      "target": "deserialize_dash",
+      "corpus_dir": "deserialize_dash",
+      "fuzz_target": "message",
+      "description": "Dash-centric deserialization seed vectors"
+    },
+    {
+      "target": "roundtrip_dash",
+      "corpus_dir": "roundtrip_dash",
+      "fuzz_target": "p2p_transport_bidirectional_v1v2",
+      "description": "Dash P2P roundtrip framing and payload seeds"
+    },
+    {
+      "target": "process_message_dash",
+      "corpus_dir": "process_message_dash",
+      "fuzz_target": "process_message",
+      "description": "Dash process_message-focused P2P input seeds"
+    },
+    {
+      "target": "llmq_messages",
+      "corpus_dir": "llmq_messages",
+      "fuzz_target": "process_messages",
+      "description": "LLMQ message command corpus seeds"
+    },
+    {
+      "target": "coinjoin_status_update",
+      "corpus_dir": "coinjoin_status_update",
+      "fuzz_target": "rpc",
+      "description": "CoinJoin status/update-like seed payloads"
+    }
+  ]
+}
