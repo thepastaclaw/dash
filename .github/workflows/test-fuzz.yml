@@ -92,7 +92,6 @@ jobs:
 
           FAILED=0
           PASSED=0
-          SKIPPED=0
 
           while IFS= read -r target; do
             [ -z "$target" ] && continue
@@ -142,7 +141,6 @@ jobs:
           echo "=== Fuzz Regression Summary ==="
           echo "Passed: $PASSED"
           echo "Failed: $FAILED"
-          echo "Skipped: $SKIPPED"
           echo "Total: $TARGET_COUNT"
 
           if [ $FAILED -gt 0 ]; then

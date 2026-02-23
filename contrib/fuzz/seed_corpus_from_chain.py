@@ -19,7 +19,6 @@ Requirements:
 import argparse
 import hashlib
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -157,7 +156,7 @@ def extract_governance_objects(output_dir, datadir=None):
     saved = 0
     try:
         objects = json.loads(result)
-        for obj_hash, obj_data in objects.items():
+        for _obj_hash, obj_data in objects.items():
             data_hex = obj_data.get("DataHex", "")
             if data_hex:
                 if save_corpus_input(output_dir, "dash_governance_object_deserialize", data_hex):
@@ -200,7 +199,14 @@ def extract_masternode_list(output_dir, datadir=None):
 
 
 def extract_quorum_info(output_dir, datadir=None):
-    """Extract quorum-related data."""
+    """Extract quorum-related data from the chain.
+
+    Note: quorum snapshot deserialize targets expect binary-serialized
+    CQuorumSnapshot data, not JSON. We extract final commitment transactions
+    from blocks instead, which are already captured by extract_special_txs()
+    for type 6 (TRANSACTION_QUORUM_COMMITMENT). This function focuses on
+    extracting quorum memberof data as raw bytes for other quorum targets.
+    """
     print("Extracting quorum data...")
     result = dash_cli("quorum", "list", datadir=datadir)
     if not result:
@@ -211,11 +217,20 @@ def extract_quorum_info(output_dir, datadir=None):
         quorum_list = json.loads(result)
         for qtype, hashes in quorum_list.items():
             for qhash in hashes[:5]:  # Limit per type
-                qinfo = dash_cli("quorum", "info", qtype, qhash, datadir=datadir)
-                if qinfo:
-                    # Save as JSON bytes for the governance/quorum targets
-                    qinfo_hex = qinfo.encode().hex()
-                    if save_corpus_input(output_dir, "dash_quorum_snapshot_deserialize", qinfo_hex):
+                # Get the quorum commitment transaction via selectquorum
+                # which gives us the quorumHash we can look up in blocks
+                qinfo_str = dash_cli("quorum", "info", qtype, qhash, datadir=datadir)
+                if not qinfo_str:
+                    continue
+                try:
+                    qinfo = json.loads(qinfo_str)
+                except json.JSONDecodeError:
+                    continue
+                # Extract the commitment tx if available
+                mining_hash = qinfo.get("minedBlock", "")
+                if mining_hash:
+                    block_hex = dash_cli("getblock", mining_hash, "0", datadir=datadir)
+                    if block_hex and save_corpus_input(output_dir, "block_deserialize", block_hex):
                         saved += 1
     except (json.JSONDecodeError, AttributeError):
         pass
