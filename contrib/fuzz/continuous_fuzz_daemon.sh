@@ -22,6 +22,7 @@
 #   --single-cycle          Run one cycle and exit (for cron usage)
 #   --dry-run               List targets and exit without fuzzing
 
+export LC_ALL=C
 set -euo pipefail
 
 # --- Configuration defaults ---
