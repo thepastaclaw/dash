@@ -53,6 +53,51 @@ def save_corpus_input(output_dir, target_name, data_hex, label=""):
     return False
 
 
+def encode_compact_size(value):
+    """Encode an integer using Bitcoin CompactSize format."""
+    if value < 0:
+        raise ValueError("CompactSize value must be non-negative")
+    if value < 253:
+        return bytes([value])
+    if value <= 0xFFFF:
+        return b"\xfd" + value.to_bytes(2, byteorder="little")
+    if value <= 0xFFFFFFFF:
+        return b"\xfe" + value.to_bytes(4, byteorder="little")
+    if value <= 0xFFFFFFFFFFFFFFFF:
+        return b"\xff" + value.to_bytes(8, byteorder="little")
+    raise ValueError("CompactSize value out of range")
+
+
+def extract_extra_payload_hex(raw_tx_hex, extra_payload_size):
+    """Extract extra payload bytes from a raw special transaction."""
+    try:
+        raw_tx = bytes.fromhex(raw_tx_hex)
+    except ValueError:
+        return None, "raw transaction is not valid hex"
+
+    if extra_payload_size <= 0:
+        return None, "extraPayloadSize must be > 0"
+
+    try:
+        size_prefix = encode_compact_size(extra_payload_size)
+    except ValueError as e:
+        return None, str(e)
+
+    min_len = len(size_prefix) + extra_payload_size
+    if len(raw_tx) < min_len:
+        return None, f"raw transaction too short ({len(raw_tx)} bytes, need at least {min_len})"
+
+    payload_start = len(raw_tx) - extra_payload_size
+    prefix_start = payload_start - len(size_prefix)
+    if prefix_start < 0:
+        return None, "extraPayloadSize does not fit in transaction length"
+
+    if raw_tx[prefix_start:payload_start] != size_prefix:
+        return None, "CompactSize prefix before payload does not match extraPayloadSize"
+
+    return raw_tx[payload_start:].hex(), None
+
+
 def extract_blocks(output_dir, count=20, datadir=None):
     """Extract recent blocks as corpus inputs."""
     print(f"Extracting {count} recent blocks...")
@@ -133,13 +178,25 @@ def extract_special_txs(output_dir, count=100, datadir=None):
                 saved += 1
 
             # Extract special payload if we know the target
-            extra_payload = tx.get("extraPayloadSize", 0)
-            if extra_payload > 0 and tx_type in type_map:
-                # The extra payload is the last N bytes of the raw tx
+            extra_payload_size = tx.get("extraPayloadSize", 0)
+            try:
+                extra_payload_size = int(extra_payload_size)
+            except (TypeError, ValueError):
+                extra_payload_size = 0
+
+            if extra_payload_size > 0 and tx_type in type_map:
+                payload_hex, err = extract_extra_payload_hex(raw_tx, extra_payload_size)
+                if not payload_hex:
+                    print(
+                        f"WARNING: Skipping special payload for tx {txid}: {err}",
+                        file=sys.stderr,
+                    )
+                    continue
+
                 target = type_map[tx_type]
-                # Save for both deserialize and roundtrip variants
+                # Save payload bytes for both deserialize and roundtrip variants.
                 for suffix in ["_deserialize", "_roundtrip"]:
-                    if save_corpus_input(output_dir, f"{target}{suffix}", raw_tx):
+                    if save_corpus_input(output_dir, f"{target}{suffix}", payload_hex):
                         saved += 1
 
     print(f"  Saved {saved} special transaction corpus inputs")

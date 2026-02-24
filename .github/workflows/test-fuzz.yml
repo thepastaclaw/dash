@@ -53,7 +53,10 @@ jobs:
 
       - name: Download corpus
         run: |
-          git clone --depth=1 https://github.com/bitcoin-core/qa-assets /tmp/qa-assets || true
+          if ! git clone --depth=1 https://github.com/bitcoin-core/qa-assets /tmp/qa-assets; then
+            echo "ERROR: Failed to clone inherited corpus from bitcoin-core/qa-assets"
+            exit 1
+          fi
           mkdir -p /tmp/fuzz_corpus
 
           # Use bitcoin-core corpus for inherited targets
@@ -81,6 +84,7 @@ jobs:
             exit 1
           fi
 
+          # detect_leaks=0 is intentional for fuzz regression due to libFuzzer/LSan noise.
           export ASAN_OPTIONS="detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1:detect_leaks=0"
           export LSAN_OPTIONS="suppressions=${BUILD_DIR}/test/sanitizer_suppressions/lsan"
           export UBSAN_OPTIONS="suppressions=${BUILD_DIR}/test/sanitizer_suppressions/ubsan:print_stacktrace=1:halt_on_error=1:report_error_type=1"
@@ -102,6 +106,7 @@ jobs:
               # This catches basic initialization crashes
               echo "::group::${target} (empty corpus, 10s run)"
               mkdir -p "$corpus_dir"
+              # timeout intentionally exceeds -max_total_time to act as a safety net for startup hangs.
               if FUZZ="$target" timeout 30 "$FUZZ_BIN" \
                   -rss_limit_mb=4000 \
                   -max_total_time=10 \
@@ -124,7 +129,7 @@ jobs:
             fi
 
             # Run corpus regression (replay all inputs)
-            echo "::group::${target} ($(ls "$corpus_dir" | wc -l) inputs)"
+            echo "::group::${target} ($(find "$corpus_dir" -maxdepth 1 -type f | wc -l) inputs)"
             if FUZZ="$target" "$FUZZ_BIN" \
                 -rss_limit_mb=4000 \
                 "$corpus_dir" 2>&1; then

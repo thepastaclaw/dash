@@ -38,6 +38,25 @@ EXCLUDE_LIST=""
 SINGLE_CYCLE=false
 DRY_RUN=false
 
+# --- Platform helpers ---
+detect_cpu_count() {
+    if command -v nproc >/dev/null 2>&1; then
+        nproc
+    elif command -v sysctl >/dev/null 2>&1; then
+        sysctl -n hw.ncpu 2>/dev/null || echo 2
+    else
+        echo 2
+    fi
+}
+
+shuffle_lines() {
+    if command -v shuf >/dev/null 2>&1; then
+        shuf
+    else
+        awk 'BEGIN{srand()} {print rand() "\t" $0}' | sort -k1,1n | cut -f2-
+    fi
+}
+
 # --- Parse arguments ---
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -79,7 +98,7 @@ fi
 
 # --- Set defaults ---
 if [[ -z "$JOBS" ]]; then
-    JOBS=$(( $(nproc) / 2 ))
+    JOBS=$(( $(detect_cpu_count) / 2 ))
     [[ "$JOBS" -lt 1 ]] && JOBS=1
 fi
 
@@ -148,7 +167,7 @@ run_target() {
 
     local exit_code=0
     FUZZ="$target" \
-    ASAN_OPTIONS="detect_leaks=0" \
+    ASAN_OPTIONS="detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1:detect_leaks=0" \
     "$FUZZ_BIN" \
         -rss_limit_mb="$RSS_LIMIT_MB" \
         -max_total_time="$TIME_PER_TARGET" \
@@ -220,7 +239,7 @@ main() {
 
         # Shuffle targets each cycle for variety
         local shuffled
-        shuffled=$(echo "$targets" | shuf)
+        shuffled=$(echo "$targets" | shuffle_lines)
 
         while IFS= read -r target; do
             [[ -z "$target" ]] && continue
