@@ -50,9 +50,14 @@ src/stacktraces.*
 src/stats/*.cpp
 src/stats/*.h
 src/test/block_reward_reallocation_tests.cpp
+src/test/fuzz/asset_lock_unlock.cpp
+src/test/fuzz/bls_operations.cpp
 src/test/fuzz/coinjoin.cpp
+src/test/fuzz/deterministic_mn_list_diff.cpp
+src/test/fuzz/governance_proposal_validator.cpp
 src/test/fuzz/llmq_messages.cpp
 src/test/fuzz/process_message_dash.cpp
+src/test/fuzz/roundtrip_dash.cpp
 src/test/bls_tests.cpp
 src/test/coinjoin_*.cpp
 src/test/dip0020opcodes_tests.cpp
@@ -73,3 +78,4 @@ src/wallet/bip39*
 src/wallet/coinjoin.*
 src/wallet/hdchain.*
 src/hash_x11.h
+src/test/fuzz/deserialize_dash.cpp

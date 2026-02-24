@@ -278,12 +278,14 @@ test_fuzz_fuzz_SOURCES = \
  test/fuzz/addition_overflow.cpp \
  test/fuzz/addrman.cpp \
  test/fuzz/asmap.cpp \
+ test/fuzz/asset_lock_unlock.cpp \
  test/fuzz/asmap_direct.cpp \
  test/fuzz/autofile.cpp \
  test/fuzz/banman.cpp \
  test/fuzz/base_encode_decode.cpp \
  test/fuzz/bech32.cpp \
  test/fuzz/bip324.cpp \
+ test/fuzz/bls_operations.cpp \
  test/fuzz/block.cpp \
  test/fuzz/block_header.cpp \
  test/fuzz/blockfilter.cpp \
@@ -307,12 +309,16 @@ test_fuzz_fuzz_SOURCES = \
  test/fuzz/decode_tx.cpp \
  test/fuzz/descriptor_parse.cpp \
  test/fuzz/deserialize.cpp \
+ test/fuzz/deserialize_dash.cpp \
+ test/fuzz/deterministic_mn_list_diff.cpp \
+ test/fuzz/roundtrip_dash.cpp \
  test/fuzz/eval_script.cpp \
  test/fuzz/fee_rate.cpp \
  test/fuzz/fees.cpp \
  test/fuzz/flatfile.cpp \
  test/fuzz/float.cpp \
  test/fuzz/golomb_rice.cpp \
+ test/fuzz/governance_proposal_validator.cpp \
  test/fuzz/hex.cpp \
  test/fuzz/http_request.cpp \
  test/fuzz/integer.cpp \
