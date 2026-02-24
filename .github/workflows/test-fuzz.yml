@@ -61,7 +61,7 @@ jobs:
 
           # Use bitcoin-core corpus for inherited targets
           if [ -d "/tmp/qa-assets/fuzz_corpora" ]; then
-            cp -r /tmp/qa-assets/fuzz_corpora/* /tmp/fuzz_corpus/ 2>/dev/null || true
+            cp -r /tmp/qa-assets/fuzz_corpora/. /tmp/fuzz_corpus/
           fi
 
           # Generate synthetic seeds for Dash-specific targets
@@ -106,7 +106,8 @@ jobs:
               # This catches basic initialization crashes
               echo "::group::${target} (empty corpus, 10s run)"
               mkdir -p "$corpus_dir"
-              # timeout intentionally exceeds -max_total_time to act as a safety net for startup hangs.
+              # timeout(30) intentionally exceeds -max_total_time=10 to absorb startup/teardown jitter
+              # while still terminating genuinely hung processes.
               if FUZZ="$target" timeout 30 "$FUZZ_BIN" \
                   -rss_limit_mb=4000 \
                   -max_total_time=10 \

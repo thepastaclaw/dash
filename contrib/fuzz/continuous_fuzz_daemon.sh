@@ -43,9 +43,11 @@ detect_cpu_count() {
     if command -v nproc >/dev/null 2>&1; then
         nproc
     elif command -v sysctl >/dev/null 2>&1; then
-        sysctl -n hw.ncpu 2>/dev/null || echo 2
+        sysctl -n hw.ncpu 2>/dev/null || echo 1
+    elif command -v getconf >/dev/null 2>&1; then
+        getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1
     else
-        echo 2
+        echo 1
     fi
 }
 
@@ -98,7 +100,11 @@ fi
 
 # --- Set defaults ---
 if [[ -z "$JOBS" ]]; then
-    JOBS=$(( $(detect_cpu_count) / 2 ))
+    cpu_count="$(detect_cpu_count)"
+    if ! [[ "$cpu_count" =~ ^[0-9]+$ ]] || [[ "$cpu_count" -lt 1 ]]; then
+        cpu_count=1
+    fi
+    JOBS=$(( cpu_count / 2 ))
     [[ "$JOBS" -lt 1 ]] && JOBS=1
 fi
 
@@ -173,7 +179,6 @@ run_target() {
         -max_total_time="$TIME_PER_TARGET" \
         -reload=0 \
         -print_final_stats=1 \
-        -detect_leaks=0 \
         -artifact_prefix="${target_crashes}/" \
         "$target_corpus" \
         > "$target_log" 2>&1 || exit_code=$?

@@ -53,23 +53,30 @@ def save_corpus_input(output_dir, target_name, data_hex, label=""):
     return False
 
 
-def encode_compact_size(value):
-    """Encode an integer using Bitcoin CompactSize format."""
-    if value < 0:
-        raise ValueError("CompactSize value must be non-negative")
-    if value < 253:
-        return bytes([value])
-    if value <= 0xFFFF:
-        return b"\xfd" + value.to_bytes(2, byteorder="little")
-    if value <= 0xFFFFFFFF:
-        return b"\xfe" + value.to_bytes(4, byteorder="little")
-    if value <= 0xFFFFFFFFFFFFFFFF:
-        return b"\xff" + value.to_bytes(8, byteorder="little")
-    raise ValueError("CompactSize value out of range")
+def read_compact_size(raw, offset):
+    """Decode a CompactSize integer from raw bytes at offset."""
+    if offset >= len(raw):
+        raise ValueError("truncated CompactSize")
+
+    first = raw[offset]
+    offset += 1
+    if first < 253:
+        return first, offset
+    if first == 253:
+        if offset + 2 > len(raw):
+            raise ValueError("truncated CompactSize (uint16)")
+        return int.from_bytes(raw[offset:offset + 2], byteorder="little"), offset + 2
+    if first == 254:
+        if offset + 4 > len(raw):
+            raise ValueError("truncated CompactSize (uint32)")
+        return int.from_bytes(raw[offset:offset + 4], byteorder="little"), offset + 4
+    if offset + 8 > len(raw):
+        raise ValueError("truncated CompactSize (uint64)")
+    return int.from_bytes(raw[offset:offset + 8], byteorder="little"), offset + 8
 
 
 def extract_extra_payload_hex(raw_tx_hex, extra_payload_size):
-    """Extract extra payload bytes from a raw special transaction."""
+    """Extract extra payload bytes by parsing a raw special transaction."""
     try:
         raw_tx = bytes.fromhex(raw_tx_hex)
     except ValueError:
@@ -79,23 +86,60 @@ def extract_extra_payload_hex(raw_tx_hex, extra_payload_size):
         return None, "extraPayloadSize must be > 0"
 
     try:
-        size_prefix = encode_compact_size(extra_payload_size)
+        offset = 0
+        if len(raw_tx) < 4:
+            return None, "raw transaction too short for nVersion/nType"
+
+        n32bit_version = int.from_bytes(raw_tx[offset:offset + 4], byteorder="little")
+        n_version = n32bit_version & 0xFFFF
+        n_type = (n32bit_version >> 16) & 0xFFFF
+        offset += 4
+
+        if n_version < 3 or n_type == 0:
+            return None, f"transaction is not a special tx (version={n_version}, type={n_type})"
+
+        vin_count, offset = read_compact_size(raw_tx, offset)
+        for _ in range(vin_count):
+            # CTxIn: prevout hash (32), prevout index (4), scriptSig, sequence (4)
+            if offset + 36 > len(raw_tx):
+                return None, "truncated tx input prevout"
+            offset += 36
+
+            script_len, offset = read_compact_size(raw_tx, offset)
+            if offset + script_len + 4 > len(raw_tx):
+                return None, "truncated tx input scriptSig/sequence"
+            offset += script_len + 4
+
+        vout_count, offset = read_compact_size(raw_tx, offset)
+        for _ in range(vout_count):
+            # CTxOut: amount (8), scriptPubKey
+            if offset + 8 > len(raw_tx):
+                return None, "truncated tx output amount"
+            offset += 8
+
+            script_len, offset = read_compact_size(raw_tx, offset)
+            if offset + script_len > len(raw_tx):
+                return None, "truncated tx output scriptPubKey"
+            offset += script_len
+
+        if offset + 4 > len(raw_tx):
+            return None, "truncated nLockTime"
+        offset += 4
+
+        payload_len, offset = read_compact_size(raw_tx, offset)
+        if payload_len != extra_payload_size:
+            return None, f"extra payload size mismatch (expected {extra_payload_size}, parsed {payload_len})"
+        if offset + payload_len > len(raw_tx):
+            return None, "truncated extra payload"
+
+        payload = raw_tx[offset:offset + payload_len]
+        offset += payload_len
+        if offset != len(raw_tx):
+            return None, f"unexpected trailing bytes after payload ({len(raw_tx) - offset} bytes)"
+
+        return payload.hex(), None
     except ValueError as e:
         return None, str(e)
-
-    min_len = len(size_prefix) + extra_payload_size
-    if len(raw_tx) < min_len:
-        return None, f"raw transaction too short ({len(raw_tx)} bytes, need at least {min_len})"
-
-    payload_start = len(raw_tx) - extra_payload_size
-    prefix_start = payload_start - len(size_prefix)
-    if prefix_start < 0:
-        return None, "extraPayloadSize does not fit in transaction length"
-
-    if raw_tx[prefix_start:payload_start] != size_prefix:
-        return None, "CompactSize prefix before payload does not match extraPayloadSize"
-
-    return raw_tx[payload_start:].hex(), None
 
 
 def extract_blocks(output_dir, count=20, datadir=None):
