@@ -249,6 +249,16 @@ jobs:
       depends-host: ${{ needs.depends-win64.outputs.host }}
       depends-dep-opts: ${{ needs.depends-win64.outputs.dep-opts }}
 
+  test-linux64_fuzz:
+    name: linux64_fuzz-test
+    uses: ./.github/workflows/test-fuzz.yml
+    needs: [container-slim, src-linux64_fuzz]
+    if: ${{ vars.SKIP_LINUX64_FUZZ == '' }}
+    with:
+      bundle-key: ${{ needs.src-linux64_fuzz.outputs.key }}
+      build-target: linux64_fuzz
+      container-path: ${{ needs.container-slim.outputs.path }}
+
   test-linux64:
     name: linux64-test
     uses: ./.github/workflows/test-src.yml
