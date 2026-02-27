@@ -8,6 +8,7 @@
 #include <llmq/blockprocessor.h>
 #include <llmq/commitment.h>
 #include <llmq/context.h>
+#include <llmq/dkgsession.h>
 #include <llmq/dkgsessionmgr.h>
 #include <llmq/observer/context.h>
 #include <llmq/options.h>
@@ -53,7 +54,32 @@ std::vector<bool> ConsumeFixedSizeBits(FuzzedDataProvider& fuzzed_data_provider,
     return bits;
 }
 
-CDataStream BuildStructuredDKGMessage(FuzzedDataProvider& fuzzed_data_provider, const CChain& chain)
+CBLSPublicKey ConsumeBLSPublicKey(FuzzedDataProvider& fuzzed_data_provider)
+{
+    auto bytes = ConsumeRandomLengthByteVector(fuzzed_data_provider, CBLSPublicKey::SerSize);
+    bytes.resize(CBLSPublicKey::SerSize);
+    CBLSPublicKey pk;
+    pk.SetBytes(bytes, fuzzed_data_provider.ConsumeBool());
+    return pk;
+}
+
+CBLSSecretKey ConsumeBLSSecretKey(FuzzedDataProvider& fuzzed_data_provider)
+{
+    auto bytes = ConsumeRandomLengthByteVector(fuzzed_data_provider, CBLSSecretKey::SerSize);
+    bytes.resize(CBLSSecretKey::SerSize);
+    return CBLSSecretKey(bytes);
+}
+
+CBLSSignature ConsumeBLSSignature(FuzzedDataProvider& fuzzed_data_provider)
+{
+    auto bytes = ConsumeRandomLengthByteVector(fuzzed_data_provider, CBLSSignature::SerSize);
+    bytes.resize(CBLSSignature::SerSize);
+    CBLSSignature sig;
+    sig.SetBytes(bytes, fuzzed_data_provider.ConsumeBool());
+    return sig;
+}
+
+CDataStream BuildStructuredContribution(FuzzedDataProvider& fuzzed_data_provider, const CChain& chain)
 {
     CDataStream vRecv{SER_NETWORK, INIT_PROTO_VERSION};
     const auto& llmqs = Params().GetConsensus().llmqs;
@@ -63,16 +89,109 @@ CDataStream BuildStructuredDKGMessage(FuzzedDataProvider& fuzzed_data_provider, 
 
     const auto& llmq_params = llmqs.at(fuzzed_data_provider.ConsumeIntegralInRange<size_t>(0, llmqs.size() - 1));
     const CBlockIndex* pindex = ConsumeQuorumBaseIndex(fuzzed_data_provider, chain);
-    const uint256 quorum_hash = pindex ? pindex->GetBlockHash() : uint256{};
 
-    vRecv << llmq_params.type;
-    vRecv << quorum_hash;
+    llmq::CDKGContribution contribution;
+    contribution.llmqType = llmq_params.type;
+    contribution.quorumHash = pindex ? pindex->GetBlockHash() : uint256{};
+    contribution.proTxHash = ConsumeUInt256(fuzzed_data_provider);
 
-    const auto payload = ConsumeRandomLengthByteVector(fuzzed_data_provider, 4096);
-    if (!payload.empty()) {
-        vRecv << payload;
+    const size_t member_count = fuzzed_data_provider.ConsumeIntegralInRange<size_t>(0, static_cast<size_t>(llmq_params.size));
+    std::vector<CBLSPublicKey> vvec;
+    vvec.reserve(member_count);
+    for (size_t i = 0; i < member_count; ++i) {
+        vvec.emplace_back(ConsumeBLSPublicKey(fuzzed_data_provider));
+    }
+    contribution.vvec = std::make_shared<std::vector<CBLSPublicKey>>(std::move(vvec));
+
+    auto encrypted_contributions = std::make_shared<CBLSIESMultiRecipientObjects<CBLSSecretKey>>();
+    encrypted_contributions->ephemeralPubKey = ConsumeBLSPublicKey(fuzzed_data_provider);
+    encrypted_contributions->ivSeed = ConsumeUInt256(fuzzed_data_provider);
+    const size_t blob_count = fuzzed_data_provider.ConsumeIntegralInRange<size_t>(0, static_cast<size_t>(llmq_params.size));
+    encrypted_contributions->blobs.reserve(blob_count);
+    for (size_t i = 0; i < blob_count; ++i) {
+        encrypted_contributions->blobs.emplace_back(ConsumeRandomLengthByteVector<unsigned char>(fuzzed_data_provider, 512));
+    }
+    contribution.contributions = std::move(encrypted_contributions);
+    contribution.sig = ConsumeBLSSignature(fuzzed_data_provider);
+
+    vRecv << contribution;
+    return vRecv;
+}
+
+CDataStream BuildStructuredComplaint(FuzzedDataProvider& fuzzed_data_provider, const CChain& chain)
+{
+    CDataStream vRecv{SER_NETWORK, INIT_PROTO_VERSION};
+    const auto& llmqs = Params().GetConsensus().llmqs;
+    if (llmqs.empty()) {
+        return vRecv;
     }
 
+    const auto& llmq_params = llmqs.at(fuzzed_data_provider.ConsumeIntegralInRange<size_t>(0, llmqs.size() - 1));
+    const CBlockIndex* pindex = ConsumeQuorumBaseIndex(fuzzed_data_provider, chain);
+
+    llmq::CDKGComplaint complaint(llmq_params);
+    complaint.llmqType = llmq_params.type;
+    complaint.quorumHash = pindex ? pindex->GetBlockHash() : uint256{};
+    complaint.proTxHash = ConsumeUInt256(fuzzed_data_provider);
+    complaint.badMembers = ConsumeFixedSizeBits(fuzzed_data_provider, llmq_params.size);
+    complaint.complainForMembers = ConsumeFixedSizeBits(fuzzed_data_provider, llmq_params.size);
+    complaint.sig = ConsumeBLSSignature(fuzzed_data_provider);
+
+    vRecv << complaint;
+    return vRecv;
+}
+
+CDataStream BuildStructuredJustification(FuzzedDataProvider& fuzzed_data_provider, const CChain& chain)
+{
+    CDataStream vRecv{SER_NETWORK, INIT_PROTO_VERSION};
+    const auto& llmqs = Params().GetConsensus().llmqs;
+    if (llmqs.empty()) {
+        return vRecv;
+    }
+
+    const auto& llmq_params = llmqs.at(fuzzed_data_provider.ConsumeIntegralInRange<size_t>(0, llmqs.size() - 1));
+    const CBlockIndex* pindex = ConsumeQuorumBaseIndex(fuzzed_data_provider, chain);
+
+    llmq::CDKGJustification justification;
+    justification.llmqType = llmq_params.type;
+    justification.quorumHash = pindex ? pindex->GetBlockHash() : uint256{};
+    justification.proTxHash = ConsumeUInt256(fuzzed_data_provider);
+    const size_t contribution_count = fuzzed_data_provider.ConsumeIntegralInRange<size_t>(0, static_cast<size_t>(llmq_params.size));
+    justification.contributions.reserve(contribution_count);
+    for (size_t i = 0; i < contribution_count; ++i) {
+        llmq::CDKGJustification::Contribution c;
+        c.index = fuzzed_data_provider.ConsumeIntegral<uint32_t>();
+        c.key = ConsumeBLSSecretKey(fuzzed_data_provider);
+        justification.contributions.emplace_back(std::move(c));
+    }
+    justification.sig = ConsumeBLSSignature(fuzzed_data_provider);
+
+    vRecv << justification;
+    return vRecv;
+}
+
+CDataStream BuildStructuredPrematureCommitment(FuzzedDataProvider& fuzzed_data_provider, const CChain& chain)
+{
+    CDataStream vRecv{SER_NETWORK, INIT_PROTO_VERSION};
+    const auto& llmqs = Params().GetConsensus().llmqs;
+    if (llmqs.empty()) {
+        return vRecv;
+    }
+
+    const auto& llmq_params = llmqs.at(fuzzed_data_provider.ConsumeIntegralInRange<size_t>(0, llmqs.size() - 1));
+    const CBlockIndex* pindex = ConsumeQuorumBaseIndex(fuzzed_data_provider, chain);
+
+    llmq::CDKGPrematureCommitment premature_commitment(llmq_params);
+    premature_commitment.llmqType = llmq_params.type;
+    premature_commitment.quorumHash = pindex ? pindex->GetBlockHash() : uint256{};
+    premature_commitment.proTxHash = ConsumeUInt256(fuzzed_data_provider);
+    premature_commitment.validMembers = ConsumeFixedSizeBits(fuzzed_data_provider, llmq_params.size);
+    premature_commitment.quorumPublicKey = ConsumeBLSPublicKey(fuzzed_data_provider);
+    premature_commitment.quorumVvecHash = ConsumeUInt256(fuzzed_data_provider);
+    premature_commitment.quorumSig = ConsumeBLSSignature(fuzzed_data_provider);
+    premature_commitment.sig = ConsumeBLSSignature(fuzzed_data_provider);
+
+    vRecv << premature_commitment;
     return vRecv;
 }
 
@@ -159,11 +278,17 @@ FUZZ_TARGET(llmq_messages, .init = initialize_llmq_messages)
             if (msg_type == NetMsgType::QFCOMMITMENT && fuzzed_data_provider.ConsumeBool()) {
                 return BuildStructuredFinalCommitment(fuzzed_data_provider, chainstate.m_chain);
             }
-            if ((msg_type == NetMsgType::QCONTRIB || msg_type == NetMsgType::QCOMPLAINT ||
-                 msg_type == NetMsgType::QJUSTIFICATION || msg_type == NetMsgType::QPCOMMITMENT ||
-                 msg_type == NetMsgType::QWATCH) &&
-                fuzzed_data_provider.ConsumeBool()) {
-                return BuildStructuredDKGMessage(fuzzed_data_provider, chainstate.m_chain);
+            if (msg_type == NetMsgType::QCONTRIB && fuzzed_data_provider.ConsumeBool()) {
+                return BuildStructuredContribution(fuzzed_data_provider, chainstate.m_chain);
+            }
+            if (msg_type == NetMsgType::QCOMPLAINT && fuzzed_data_provider.ConsumeBool()) {
+                return BuildStructuredComplaint(fuzzed_data_provider, chainstate.m_chain);
+            }
+            if (msg_type == NetMsgType::QJUSTIFICATION && fuzzed_data_provider.ConsumeBool()) {
+                return BuildStructuredJustification(fuzzed_data_provider, chainstate.m_chain);
+            }
+            if (msg_type == NetMsgType::QPCOMMITMENT && fuzzed_data_provider.ConsumeBool()) {
+                return BuildStructuredPrematureCommitment(fuzzed_data_provider, chainstate.m_chain);
             }
             return ConsumeDataStream(fuzzed_data_provider, MAX_PROTOCOL_MESSAGE_LENGTH);
         }();

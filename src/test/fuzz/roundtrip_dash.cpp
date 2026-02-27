@@ -146,6 +146,8 @@ FUZZ_TARGET_DASH_ROUNDTRIP(dash_final_commitment_roundtrip,
 FUZZ_TARGET_DASH_ROUNDTRIP(dash_final_commitment_tx_payload_roundtrip,
                            { DashRoundtripFromFuzzingInput<llmq::CFinalCommitmentTxPayload>(buffer); })
 
+FUZZ_TARGET_DASH_ROUNDTRIP(dash_dkg_contribution_roundtrip,
+                           { DashRoundtripFromFuzzingInput<llmq::CDKGContribution>(buffer); })
 FUZZ_TARGET_DASH_ROUNDTRIP(dash_dkg_complaint_roundtrip, { DashRoundtripFromFuzzingInput<llmq::CDKGComplaint>(buffer); })
 FUZZ_TARGET_DASH_ROUNDTRIP(dash_dkg_justification_roundtrip,
                            { DashRoundtripFromFuzzingInput<llmq::CDKGJustification>(buffer); })

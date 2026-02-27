@@ -192,6 +192,10 @@ FUZZ_TARGET_DASH_DESERIALIZE(dash_final_commitment_tx_payload_deserialize, {
 
 // --- llmq/ types: DKG messages ---
 
+FUZZ_TARGET_DASH_DESERIALIZE(dash_dkg_contribution_deserialize, {
+    llmq::CDKGContribution obj;
+    DashDeserializeFromFuzzingInput(buffer, obj);
+})
 FUZZ_TARGET_DASH_DESERIALIZE(dash_dkg_complaint_deserialize, {
     llmq::CDKGComplaint obj;
     DashDeserializeFromFuzzingInput(buffer, obj);
