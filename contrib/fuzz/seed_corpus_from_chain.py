@@ -376,8 +376,22 @@ def create_synthetic_seeds(output_dir):
             "00" * 32 + "00" * 32 + "00" * 96,  # proRegTxHash + signChallenge + sig
         ],
         # DKG messages
+        "dash_dkg_contribution_deserialize": [
+            # llmqType(1) + quorumHash(32) + proTxHash(32) + vvec_count(varint=0) +
+            # contributions: ephemeralPubKey(48) + ivSeed(32) + blobs_count(varint=0) + sig(96)
+            "64" + "00" * 32 + "00" * 32 + "00" + "00" * 48 + "00" * 32 + "00" + "00" * 96,
+        ],
         "dash_dkg_complaint_deserialize": [
             "64" + "00" * 32 + "00" * 32 + "0000" + "00",  # minimal
+        ],
+        "dash_dkg_justification_deserialize": [
+            # llmqType(1) + quorumHash(32) + proTxHash(32) + contributions_count(varint=0) + sig(96)
+            "64" + "00" * 32 + "00" * 32 + "00" + "00" * 96,
+        ],
+        "dash_dkg_premature_commitment_deserialize": [
+            # llmqType(1) + quorumHash(32) + proTxHash(32) + validMembers(varint=0) +
+            # quorumPublicKey(48) + quorumVvecHash(32) + quorumSig(96) + sig(96)
+            "64" + "00" * 32 + "00" * 32 + "0000" + "00" * 48 + "00" * 32 + "00" * 96 + "00" * 96,
         ],
     }
 
