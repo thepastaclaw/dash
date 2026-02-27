@@ -2,10 +2,13 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <bls/bls.h>
 #include <chain.h>
 #include <evo/deterministicmns.h>
 #include <evo/netinfo.h>
 #include <pubkey.h>
+#include <script/script.h>
+#include <script/standard.h>
 #include <streams.h>
 #include <test/fuzz/FuzzedDataProvider.h>
 #include <test/fuzz/fuzz.h>
@@ -72,10 +75,10 @@ std::string AddressFromTag(uint64_t tag)
     return strprintf("%u.%u.%u.%u:%u", a, b, c, d, port);
 }
 
-CDeterministicMNCPtr MakeMasternode(const uint64_t internal_id, const uint64_t unique_tag, const int height)
+CDeterministicMNCPtr MakeMasternode(const uint64_t internal_id, const uint64_t unique_tag, const int height, const MnType mn_type = MnType::Regular)
 {
     auto state = std::make_shared<CDeterministicMNState>();
-    state->nVersion = ProTxVersion::LegacyBLS;
+    state->nVersion = mn_type == MnType::Evo ? ProTxVersion::BasicBLS : ProTxVersion::LegacyBLS;
     state->nRegisteredHeight = height;
     state->nLastPaidHeight = height > 0 ? height - 1 : 0;
     state->nConsecutivePayments = static_cast<int>(unique_tag % 4);
@@ -92,7 +95,13 @@ CDeterministicMNCPtr MakeMasternode(const uint64_t internal_id, const uint64_t u
         throw std::runtime_error("failed to create deterministic masternode netInfo");
     }
 
-    auto dmn = std::make_shared<CDeterministicMN>(internal_id, MnType::Regular);
+    if (mn_type == MnType::Evo) {
+        state->platformNodeID = Uint160FromTag(unique_tag ^ 0xABABABABULL);
+        state->platformP2PPort = static_cast<uint16_t>(10000 + (unique_tag % 50000));
+        state->platformHTTPPort = static_cast<uint16_t>(11000 + (unique_tag % 50000));
+    }
+
+    auto dmn = std::make_shared<CDeterministicMN>(internal_id, mn_type);
     dmn->proTxHash = HashFromTag(unique_tag ^ 0x11111111ULL);
     dmn->collateralOutpoint = COutPoint(HashFromTag(unique_tag ^ 0x22222222ULL), static_cast<uint32_t>(unique_tag % 8));
     dmn->nOperatorReward = static_cast<uint16_t>(unique_tag % 10000);
@@ -156,7 +165,8 @@ FUZZ_TARGET(deterministic_mn_list_diff, .init = initialize_deterministic_mn_list
     uint64_t next_unique_tag = 1;
     const size_t initial_mn_count = fuzzed_data_provider.ConsumeIntegralInRange<size_t>(0, 8);
     for (size_t i = 0; i < initial_mn_count; ++i) {
-        list_from.AddMN(MakeMasternode(next_internal_id++, next_unique_tag++, source_height), /*fBumpTotalCount=*/true);
+        const MnType mn_type = fuzzed_data_provider.ConsumeBool() ? MnType::Evo : MnType::Regular;
+        list_from.AddMN(MakeMasternode(next_internal_id++, next_unique_tag++, source_height, mn_type), /*fBumpTotalCount=*/true);
     }
 
     CDeterministicMNList list_to(list_from);
@@ -164,7 +174,8 @@ FUZZ_TARGET(deterministic_mn_list_diff, .init = initialize_deterministic_mn_list
     for (size_t i = 0; i < operation_count; ++i) {
         const uint8_t op = fuzzed_data_provider.ConsumeIntegralInRange<uint8_t>(0, 2);
         if (op == 0) {
-            list_to.AddMN(MakeMasternode(next_internal_id++, next_unique_tag++, source_height), /*fBumpTotalCount=*/true);
+            const MnType mn_type = fuzzed_data_provider.ConsumeBool() ? MnType::Evo : MnType::Regular;
+            list_to.AddMN(MakeMasternode(next_internal_id++, next_unique_tag++, source_height, mn_type), /*fBumpTotalCount=*/true);
             continue;
         }
 
@@ -180,7 +191,7 @@ FUZZ_TARGET(deterministic_mn_list_diff, .init = initialize_deterministic_mn_list
         const auto old_mn = list_to.GetMN(hashes[index]);
         if (!old_mn) continue;
         auto new_state = std::make_shared<CDeterministicMNState>(*old_mn->pdmnState);
-        switch (fuzzed_data_provider.ConsumeIntegralInRange<uint8_t>(0, 3)) {
+        switch (fuzzed_data_provider.ConsumeIntegralInRange<uint8_t>(0, 15)) {
         case 0:
             new_state->nPoSePenalty = fuzzed_data_provider.ConsumeIntegralInRange<int>(0, 1000);
             break;
@@ -192,6 +203,50 @@ FUZZ_TARGET(deterministic_mn_list_diff, .init = initialize_deterministic_mn_list
             break;
         case 3:
             new_state->confirmedHash = HashFromTag(next_unique_tag++ ^ 0x33333333ULL);
+            break;
+        case 4: {
+            CBLSSecretKey sk;
+            sk.MakeNewKey();
+            new_state->nVersion = ProTxVersion::BasicBLS;
+            new_state->pubKeyOperator.Set(sk.GetPublicKey(), /*specificLegacyScheme=*/false);
+            break;
+        }
+        case 5:
+            new_state->keyIDVoting = CKeyID(Uint160FromTag(next_unique_tag++ ^ 0x06060606ULL));
+            break;
+        case 6: {
+            auto net_info = NetInfoInterface::MakeNetInfo(new_state->nVersion);
+            if (net_info && net_info->AddEntry(NetInfoPurpose::CORE_P2P, AddressFromTag(next_unique_tag++)) == NetInfoStatus::Success) {
+                new_state->netInfo = std::move(net_info);
+            }
+            break;
+        }
+        case 7:
+            new_state->scriptPayout = CScript() << OP_DUP << OP_HASH160 << ToByteVector(Uint160FromTag(next_unique_tag++)) << OP_EQUALVERIFY << OP_CHECKSIG;
+            break;
+        case 8:
+            new_state->scriptOperatorPayout = CScript() << OP_DUP << OP_HASH160 << ToByteVector(Uint160FromTag(next_unique_tag++ ^ 0x08080808ULL)) << OP_EQUALVERIFY << OP_CHECKSIG;
+            break;
+        case 9:
+            new_state->nRevocationReason = fuzzed_data_provider.ConsumeIntegralInRange<uint16_t>(CProUpRevTx::REASON_NOT_SPECIFIED, CProUpRevTx::REASON_CHANGE_OF_KEYS);
+            break;
+        case 10:
+            new_state->nPoSeRevivedHeight = fuzzed_data_provider.ConsumeIntegralInRange<int>(0, 100000);
+            break;
+        case 11:
+            new_state->BanIfNotBanned(fuzzed_data_provider.ConsumeIntegralInRange<int>(0, 100000));
+            break;
+        case 12:
+            new_state->platformNodeID = Uint160FromTag(next_unique_tag++ ^ 0x12121212ULL);
+            break;
+        case 13:
+            new_state->platformP2PPort = fuzzed_data_provider.ConsumeIntegral<uint16_t>();
+            break;
+        case 14:
+            new_state->platformHTTPPort = fuzzed_data_provider.ConsumeIntegral<uint16_t>();
+            break;
+        case 15:
+            new_state->nRegisteredHeight = fuzzed_data_provider.ConsumeIntegralInRange<int>(0, 10000);
             break;
         }
         list_to.UpdateMN(*old_mn, new_state);
@@ -245,7 +300,7 @@ FUZZ_TARGET(deterministic_mn_list_diff, .init = initialize_deterministic_mn_list
             MakeMasternode(fuzzed_data_provider.ConsumeBool() && !mutated_diff.addedMNs.empty()
                                ? mutated_diff.addedMNs.front()->GetInternalId()
                                : next_internal_id++,
-                           next_unique_tag++, source_height));
+                           next_unique_tag++, source_height, fuzzed_data_provider.ConsumeBool() ? MnType::Evo : MnType::Regular));
     }
 
     if (DiffHasRequiredPointers(mutated_diff)) {
