@@ -58,13 +58,13 @@ darwin_STRIP=$(shell $(SHELL) $(.SHELLFLAGS) "command -v llvm-strip")
 #         which is in turn used as an include guard.
 
 # TODO: remove C_INCLUDE_PATH when it is indeed useless
-# https://github.com/bitcoin/bitcoin/pull/30451 has been partiall reverted in #7184 and should be re-applied
+# https://github.com/bitcoin/bitcoin/pull/30451 has been partially reverted in #7184 and should be re-applied
 darwin_CC=env -u C_INCLUDE_PATH -u CPLUS_INCLUDE_PATH $(clang_prog) --target=$(host) \
               -isysroot$(OSX_SDK) -nostdlibinc \
               -iwithsysroot/usr/include -iframeworkwithsysroot/System/Library/Frameworks
 
 # TODO: remove C_INCLUDE_PATH when it is indeed useless
-# https://github.com/bitcoin/bitcoin/pull/30451 has been partiall reverted in #7184 and should be re-applied
+# https://github.com/bitcoin/bitcoin/pull/30451 has been partially reverted in #7184 and should be re-applied
 darwin_CXX=env -u C_INCLUDE_PATH -u CPLUS_INCLUDE_PATH $(clangxx_prog) --target=$(host) \
                -isysroot$(OSX_SDK) -nostdlibinc \
                -iwithsysroot/usr/include/c++/v1 \
