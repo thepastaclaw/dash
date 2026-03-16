@@ -446,15 +446,13 @@ static const DatabaseFormat DATABASE_FORMATS[] = {
 
 void TestLoadWallet(const std::string& name, DatabaseFormat format, const ArgsManager& args, std::function<void(std::shared_ptr<CWallet>)> f)
 {
-    node::NodeContext node;
-    auto chain{interfaces::MakeChain(node)};
     DatabaseOptions options;
     options.require_format = format;
     DatabaseStatus status;
     bilingual_str error;
     std::vector<bilingual_str> warnings;
     auto database{MakeWalletDatabase(name, options, status, error)};
-    auto wallet{std::make_shared<CWallet>(chain.get(), /*coinjoin_loader=*/nullptr, "", args, std::move(database))};
+    auto wallet{std::make_shared<CWallet>(/*chain=*/nullptr, /*coinjoin_loader=*/nullptr, "", args, std::move(database))};
     BOOST_CHECK_EQUAL(wallet->LoadWallet(), DBErrors::LOAD_OK);
     WITH_LOCK(wallet->cs_wallet, f(wallet));
 }
