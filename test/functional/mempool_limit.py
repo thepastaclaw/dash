@@ -10,12 +10,17 @@ from test_framework.blocktools import COINBASE_MATURITY
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
     assert_equal,
+    assert_fee_amount,
     assert_greater_than,
     assert_raises_rpc_error,
     create_lots_of_big_transactions,
     gen_return_txouts,
 )
-from test_framework.wallet import MiniWallet
+from test_framework.wallet import (
+    COIN,
+    DEFAULT_FEE,
+    MiniWallet,
+)
 
 
 class MempoolLimitTest(BitcoinTestFramework):
@@ -39,13 +44,14 @@ class MempoolLimitTest(BitcoinTestFramework):
         assert_equal(node.getmempoolinfo()['minrelaytxfee'], Decimal('0.00001000'))
         assert_equal(node.getmempoolinfo()['mempoolminfee'], Decimal('0.00001000'))
 
-        tx_batch_size = 25
-        num_of_batches = 3
+        tx_batch_size = 1
+        num_of_batches = 75
         # Generate UTXOs to flood the mempool
         # 1 to create a tx initially that will be evicted from the mempool later
         # 3 batches of multiple transactions with a fee rate much higher than the previous UTXO
         # And 1 more to verify that this tx does not get added to the mempool with a fee rate less than the mempoolminfee
-        self.generate(miniwallet, 1 + (num_of_batches * tx_batch_size) + 1)
+        # And 2 more for the package cpfp test
+        self.generate(miniwallet, 1 + (num_of_batches * tx_batch_size) + 1 + 2)
 
         # Mine 99 blocks so that the UTXOs are allowed to be spent
         self.generate(node, COINBASE_MATURITY - 1)
@@ -76,6 +82,28 @@ class MempoolLimitTest(BitcoinTestFramework):
         # Deliberately try to create a tx with a fee less than the minimum mempool fee to assert that it does not get added to the mempool
         self.log.info('Create a mempool tx that will not pass mempoolminfee')
         assert_raises_rpc_error(-26, "mempool min fee not met", miniwallet.send_self_transfer, from_node=node, fee_rate=relayfee)
+
+        self.log.info("Check that submitpackage allows cpfp of a parent below mempool min feerate")
+        node = self.nodes[0]
+
+        # Package with 2 parents and 1 child. One parent has a high feerate due to modified fees,
+        # another is below the mempool minimum feerate but bumped by the child.
+        tx_poor = miniwallet.create_self_transfer(fee_rate=relayfee)
+        tx_rich = miniwallet.create_self_transfer(fee=0, fee_rate=0)
+        node.prioritisetransaction(tx_rich["txid"], int(DEFAULT_FEE * COIN))
+        package_txns = [tx_rich, tx_poor]
+        coins = [tx["new_utxo"] for tx in package_txns]
+        tx_child = miniwallet.create_self_transfer_multi(utxos_to_spend=coins, fee_per_output=10000) #DEFAULT_FEE
+        package_txns.append(tx_child)
+
+        submitpackage_result = node.submitpackage([tx["hex"] for tx in package_txns])
+
+        rich_parent_result = submitpackage_result["tx-results"][tx_rich["txid"]]
+        poor_parent_result = submitpackage_result["tx-results"][tx_poor["txid"]]
+        child_result = submitpackage_result["tx-results"][tx_child["tx"].hash]
+        assert_fee_amount(poor_parent_result["fees"]["base"], tx_poor["tx"].get_vsize(), relayfee)
+        assert_equal(rich_parent_result["fees"]["base"], 0)
+        assert_equal(child_result["fees"]["base"], DEFAULT_FEE)
 
         self.log.info('Test passing a value below the minimum (5 MB) to -maxmempool throws an error')
         self.stop_node(0)

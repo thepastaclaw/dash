@@ -292,36 +292,6 @@ class RPCPackagesTest(BitcoinTestFramework):
         peer.wait_for_broadcast([tx["tx"].hash for tx in package_txns])
         self.generate(node, 1)
 
-    def test_submit_cpfp(self):
-        node = self.nodes[0]
-        peer = node.add_p2p_connection(P2PTxInvStore())
-
-        tx_poor = self.wallet.create_self_transfer(fee=0, fee_rate=0)
-        tx_rich = self.wallet.create_self_transfer(fee=DEFAULT_FEE)
-        package_txns = [tx_rich, tx_poor]
-        coins = [tx["new_utxo"] for tx in package_txns]
-        tx_child = self.wallet.create_self_transfer_multi(utxos_to_spend=coins, fee_per_output=10000) #DEFAULT_FEE
-        package_txns.append(tx_child)
-
-        submitpackage_result = node.submitpackage([tx["hex"] for tx in package_txns])
-
-        rich_parent_result = submitpackage_result["tx-results"][tx_rich["txid"]]
-        poor_parent_result = submitpackage_result["tx-results"][tx_poor["txid"]]
-        child_result = submitpackage_result["tx-results"][tx_child["tx"].hash]
-        assert_equal(rich_parent_result["fees"]["base"], DEFAULT_FEE)
-        assert_equal(poor_parent_result["fees"]["base"], 0)
-        assert_equal(child_result["fees"]["base"], DEFAULT_FEE)
-        # Package feerate is calculated for the remaining transactions after deduplication and
-        # individual submission. Since this package had a 0-fee parent, package feerate must have
-        # been used and returned.
-        assert "package-feerate" in submitpackage_result
-        assert_fee_amount(DEFAULT_FEE, rich_parent_result["size"] + child_result["size"], submitpackage_result["package-feerate"])
-
-        # The node will broadcast each transaction, still abiding by its peer's fee filter
-        self.bump_mocktime(30)
-        peer.wait_for_broadcast([tx["tx"].hash for tx in package_txns])
-        self.generate(node, 1)
-
     def test_submitpackage(self):
         node = self.nodes[0]
 
@@ -329,9 +299,6 @@ class RPCPackagesTest(BitcoinTestFramework):
         for num_parents in [1, 2, 24]:
             self.test_submit_child_with_parents(num_parents, False)
             self.test_submit_child_with_parents(num_parents, True)
-
-        self.log.info("Submitpackage valid packages with CPFP")
-        self.test_submit_cpfp()
 
         self.log.info("Submitpackage only allows packages of 1 child with its parents")
         # Chain of 3 transactions has too many generations
