@@ -94,7 +94,10 @@ class NodeNetworkLimitedTest(BitcoinTestFramework):
 
         # Wait until the full_node is headers-wise sync
         best_block_hash = pruned_node.getbestblockhash()
-        self.wait_until(lambda: next(filter(lambda x: x['hash'] == best_block_hash, full_node.getchaintips()))['status'] == "headers-only")
+        def check_headers_only():
+            tip = next(filter(lambda x: x['hash'] == best_block_hash, full_node.getchaintips()), None)
+            return tip is not None and tip['status'] == "headers-only"
+        self.wait_until(check_headers_only)
 
         # Now, since the node aims to download a window of 1024 blocks,
         # ensure it requests the blocks below the threshold only (with a
@@ -115,6 +118,10 @@ class NodeNetworkLimitedTest(BitcoinTestFramework):
         assert_equal(full_node.getblockcount(), start_height_full_node)
         self.connect_nodes(2, 1)
         self.sync_blocks([miner, full_node])
+
+        # Stop the pruned node with expected_stderr to prevent the framework
+        # shutdown from failing on the governance-prune warning.
+        self.stop_node(0, expected_stderr=EXPECTED_STDERR_NO_GOV_PRUNE)
 
     def run_test(self):
         node = self.nodes[0].add_p2p_connection(P2PIgnoreInv())
