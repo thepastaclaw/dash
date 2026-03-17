@@ -7,6 +7,7 @@
 from decimal import Decimal
 
 from test_framework.blocktools import COINBASE_MATURITY
+from test_framework.p2p import P2PTxInvStore
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
     assert_equal,
@@ -85,6 +86,7 @@ class MempoolLimitTest(BitcoinTestFramework):
 
         self.log.info("Check that submitpackage allows cpfp of a parent below mempool min feerate")
         node = self.nodes[0]
+        peer = node.add_p2p_connection(P2PTxInvStore())
 
         # Package with 2 parents and 1 child. One parent has a high feerate due to modified fees,
         # another is below the mempool minimum feerate but bumped by the child.
@@ -104,6 +106,46 @@ class MempoolLimitTest(BitcoinTestFramework):
         assert_fee_amount(poor_parent_result["fees"]["base"], tx_poor["tx"].get_vsize(), relayfee)
         assert_equal(rich_parent_result["fees"]["base"], 0)
         assert_equal(child_result["fees"]["base"], DEFAULT_FEE)
+
+        # The node will broadcast each transaction, still abiding by its peer's fee filter
+        self.bump_mocktime(30)
+        peer.wait_for_broadcast([tx["tx"].hash for tx in package_txns])
+
+        self.log.info("Check a package that passes mempoolminfee but is evicted immediately after submission")
+        mempoolmin_feerate = node.getmempoolinfo()["mempoolminfee"]
+        current_mempool = node.getrawmempool(verbose=False)
+        target_weight_each = 50000
+        assert_greater_than(target_weight_each * 2, node.getmempoolinfo()["maxmempool"] - node.getmempoolinfo()["bytes"])
+        parent_fee = (mempoolmin_feerate / 1000) * (target_weight_each // 4) - Decimal("0.00001")
+        miniwallet.rescan_utxos()
+        tx_parent_just_below = miniwallet.create_self_transfer(fee=parent_fee, target_weight=target_weight_each)
+        tx_child_just_above = miniwallet.create_self_transfer(
+            utxo_to_spend=tx_parent_just_below["new_utxo"],
+            fee=Decimal("0.00001"),
+            target_weight=target_weight_each,
+        )
+        child_fee = (
+            (mempoolmin_feerate / 1000)
+            * (tx_parent_just_below["tx"].get_vsize() + tx_child_just_above["tx"].get_vsize())
+            - parent_fee
+            + Decimal("0.00001")
+        )
+        tx_child_just_above = miniwallet.create_self_transfer(
+            utxo_to_spend=tx_parent_just_below["new_utxo"],
+            fee=child_fee,
+            target_weight=target_weight_each,
+        )
+        assert_greater_than(mempoolmin_feerate, parent_fee / tx_parent_just_below["tx"].get_vsize())
+        assert_greater_than(
+            (parent_fee + child_fee) / (tx_parent_just_below["tx"].get_vsize() + tx_child_just_above["tx"].get_vsize()),
+            mempoolmin_feerate / 1000,
+        )
+        assert_raises_rpc_error(
+            -26,
+            "mempool full",
+            node.submitpackage,
+            [tx_parent_just_below["hex"], tx_child_just_above["hex"]],
+        )
 
         self.log.info('Test passing a value below the minimum (5 MB) to -maxmempool throws an error')
         self.stop_node(0)

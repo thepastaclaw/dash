@@ -394,6 +394,7 @@ BOOST_FIXTURE_TEST_CASE(package_cpfp_tests, TestChain100Setup)
         BOOST_CHECK(submit_cpfp_deprio.m_state.IsInvalid());
         BOOST_CHECK_EQUAL(submit_cpfp_deprio.m_tx_results.find(tx_parent->GetHash())->second.m_state.GetResult(),
                           TxValidationResult::TX_MEMPOOL_POLICY);
+        BOOST_CHECK(submit_cpfp_deprio.m_tx_results.find(tx_child->GetHash()) == submit_cpfp_deprio.m_tx_results.end());
         BOOST_CHECK(submit_cpfp_deprio.m_tx_results.find(tx_parent->GetHash())->second.m_state.GetRejectReason() == "min relay fee not met");
         BOOST_CHECK_EQUAL(m_node.mempool->size(), expected_pool_size);
     }
@@ -410,6 +411,7 @@ BOOST_FIXTURE_TEST_CASE(package_cpfp_tests, TestChain100Setup)
         expected_pool_size += 2;
         BOOST_CHECK_MESSAGE(submit_cpfp.m_state.IsValid(),
                             "Package validation unexpectedly failed: " << submit_cpfp.m_state.GetRejectReason());
+        BOOST_CHECK_EQUAL(submit_cpfp.m_tx_results.size(), package_cpfp.size());
         auto it_parent = submit_cpfp.m_tx_results.find(tx_parent->GetHash());
         auto it_child = submit_cpfp.m_tx_results.find(tx_child->GetHash());
         BOOST_CHECK(it_parent != submit_cpfp.m_tx_results.end());
