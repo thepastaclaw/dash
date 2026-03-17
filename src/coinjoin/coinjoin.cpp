@@ -648,6 +648,15 @@ bool CoinJoin::ValidateDemotionEntry(const std::vector<CTxIn>& vecTxIn, const st
         return false;
     }
 
+    // Reject demotion at the largest denomination (no larger adjacent exists)
+    const int nLargerDenom = GetLargerAdjacentDenom(nSessionDenom);
+    if (nLargerDenom == 0) {
+        LogPrint(BCLog::COINJOIN, "CoinJoin::ValidateDemotionEntry -- ERROR: no larger adjacent denom for %s\n",
+                DenominationToString(nSessionDenom));
+        nMessageIDRet = ERR_DENOM;
+        return false;
+    }
+
     // Validate all outputs are at session denomination and P2PKH
     for (const auto& txout : vecTxOut) {
         const int nDenom = AmountToDenomination(txout.nValue);

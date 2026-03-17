@@ -943,6 +943,21 @@ BOOST_AUTO_TEST_CASE(validate_demotion_entry_edge_cases)
     // because there's no smaller denomination to demote to
     const int nSmallestDenom = 1 << 4;  // 0.001 DASH
     BOOST_CHECK_EQUAL(CoinJoin::GetSmallerAdjacentDenom(nSmallestDenom), 0);  // No smaller exists
+
+    // Test that demotion at the largest denomination (10 DASH) is rejected
+    // because there's no larger adjacent denomination for the input
+    const int nLargestDenom = 1 << 0;  // 10 DASH
+    BOOST_CHECK_EQUAL(CoinJoin::GetLargerAdjacentDenom(nLargestDenom), 0);  // No larger exists
+    const CAmount nLargestAmount = CoinJoin::DenominationToAmount(nLargestDenom);
+    std::vector<CTxIn> largestVin;
+    largestVin.push_back(MakeDenomInput(100));
+    std::vector<CTxOut> largestVout;
+    for (int i = 0; i < CoinJoin::PROMOTION_RATIO; ++i) {
+        largestVout.push_back(MakeDenomOutput(nLargestAmount, static_cast<uint8_t>(i)));
+    }
+    msg = MSG_NOERR;
+    BOOST_CHECK(!CoinJoin::ValidateDemotionEntry(largestVin, largestVout, nLargestDenom, msg));
+    BOOST_CHECK_EQUAL(msg, ERR_DENOM);
 }
 
 BOOST_AUTO_TEST_CASE(is_standard_mixing_entry)
