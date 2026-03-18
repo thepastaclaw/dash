@@ -2,41 +2,41 @@
 # Copyright (c) 2023 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
-"""Test fastprune mode."""
+"""Test fastprune mode.
+
+Ensure that blocks larger than the 64 KiB fastprune blockfile limit
+don't crash or freeze the node (regression test for bitcoin/bitcoin#27191).
+"""
+from test_framework.blocktools import COINBASE_MATURITY
 from test_framework.test_framework import BitcoinTestFramework
-from test_framework.util import (
-    assert_equal
-)
-from test_framework.blocktools import (
-    create_block,
-    create_coinbase,
-    add_witness_commitment
-)
+from test_framework.util import assert_equal
 from test_framework.wallet import MiniWallet
 
 
 class FeatureFastpruneTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
-        self.extra_args = [["-fastprune"]]
+        self.extra_args = [["-fastprune", "-datacarriersize=100000"]]
 
     def run_test(self):
-        self.log.info("ensure that large blocks don't crash or freeze in -fastprune")
         wallet = MiniWallet(self.nodes[0])
-        tx = wallet.create_self_transfer()['tx']
-        annex = [0x50]
-        for _ in range(0x10000):
-            annex.append(0xff)
-        tx.wit.vtxinwit[0].scriptWitness.stack.append(bytes(annex))
-        tip = int(self.nodes[0].getbestblockhash(), 16)
-        time = self.nodes[0].getblock(self.nodes[0].getbestblockhash())['time'] + 1
-        height = self.nodes[0].getblockcount() + 1
-        block = create_block(hashprev=tip, ntime=time, txlist=[tx], coinbase=create_coinbase(height=height))
-        add_witness_commitment(block)
-        block.solve()
-        self.nodes[0].submitblock(block.serialize().hex())
-        assert_equal(int(self.nodes[0].getbestblockhash(), 16), block.sha256)
+
+        self.log.info("Mature coinbase so MiniWallet has a spendable UTXO")
+        self.generate(self.nodes[0], COINBASE_MATURITY + 1)
+
+        self.log.info("Create an oversized tx (>64 KiB) and mine it via generateblock")
+        # In Dash weight == serialized size (no SegWit), so target_weight
+        # of 0x10000 (65536 bytes) produces a block that exceeds the
+        # fastprune blockfile limit of 64 KiB, exercising the dynamic
+        # adjustment added in bitcoin/bitcoin#27191.
+        tx = wallet.create_self_transfer(target_weight=0x10000)["tx"]
+        self.generateblock(
+            self.nodes[0],
+            output="raw(55)",
+            transactions=[tx.serialize().hex()],
+        )
+        assert_equal(self.nodes[0].getblockcount(), COINBASE_MATURITY + 2)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     FeatureFastpruneTest().main()
