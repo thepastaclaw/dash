@@ -447,11 +447,13 @@ BOOST_FIXTURE_TEST_CASE(package_cpfp_tests, TestChain100Setup)
     }
 
     // Just because we allow low-fee parents doesn't mean we allow low-feerate packages.
-    // The mempool minimum feerate is 5sat/vB, but this package just pays 1200 satoshis total.
+    // The mempool minimum feerate is 5sat/vB, but this package just pays 1700 satoshis total.
     // The child fees would be able to pay for itself, but isn't enough for the entire package.
+    // Note: Dash transactions are larger than Bitcoin's (no SegWit discount, ~225 bytes for P2PKH),
+    // so fees are higher than Bitcoin's test values to ensure they exceed minRelayTxFee.
     Package package_still_too_low;
-    const CAmount parent_fee{200};
-    const CAmount child_fee{1000};
+    const CAmount parent_fee{500};
+    const CAmount child_fee{1200};
     auto mtx_parent_cheap = CreateValidMempoolTransaction(/*input_transaction=*/m_coinbase_txns[1], /*input_vout=*/0,
                                                           /*input_height=*/0, /*input_signing_key=*/coinbaseKey,
                                                           /*output_destination=*/parent_spk,

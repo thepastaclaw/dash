@@ -113,7 +113,6 @@ class MempoolLimitTest(BitcoinTestFramework):
 
         self.log.info("Check a package that passes mempoolminfee but is evicted immediately after submission")
         mempoolmin_feerate = node.getmempoolinfo()["mempoolminfee"]
-        current_mempool = node.getrawmempool(verbose=False)
         target_weight_each = 50000
         assert_greater_than(target_weight_each * 2, node.getmempoolinfo()["maxmempool"] - node.getmempoolinfo()["bytes"])
         parent_fee = (mempoolmin_feerate / 1000) * (target_weight_each // 4) - Decimal("0.00001")
