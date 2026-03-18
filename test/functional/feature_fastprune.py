@@ -22,7 +22,7 @@ class FeatureFastpruneTest(BitcoinTestFramework):
         wallet = MiniWallet(self.nodes[0])
 
         self.log.info("Mature coinbase so MiniWallet has a spendable UTXO")
-        self.generate(self.nodes[0], COINBASE_MATURITY + 1)
+        self.generate(wallet, COINBASE_MATURITY + 1)
 
         self.log.info("Create an oversized tx (>64 KiB) and mine it via generateblock")
         # In Dash weight == serialized size (no SegWit), so target_weight
