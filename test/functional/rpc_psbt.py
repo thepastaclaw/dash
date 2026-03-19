@@ -248,8 +248,7 @@ class PSBTTest(BitcoinTestFramework):
                                 self.nodes[0].converttopsbt, hexstring=signedtx['hex'])  # permitsigdata=False by default
         assert_raises_rpc_error(-22, "Inputs must not have scriptSigs",
                                 self.nodes[0].converttopsbt, hexstring=signedtx['hex'], permitsigdata=False)
-        assert_raises_rpc_error(-22, "Inputs must not have scriptSigs",
-                                self.nodes[0].converttopsbt, hexstring=signedtx['hex'], permitsigdata=False, iswitness=True)
+        # Note: iswitness parameter is not supported by Dash's converttopsbt (no SegWit witness support)
         # Unless we allow it to convert and strip signatures
         self.nodes[0].converttopsbt(hexstring=signedtx['hex'], permitsigdata=True)
 
