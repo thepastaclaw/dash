@@ -33,6 +33,7 @@
 #include <util/error.h>
 #include <util/moneystr.h>
 #include <util/string.h>
+#include <util/time.h>
 #include <util/translation.h>
 #ifdef USE_BDB
 #include <wallet/bdb.h>
