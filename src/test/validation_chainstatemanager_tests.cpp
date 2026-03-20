@@ -27,6 +27,7 @@
 
 #include <boost/test/unit_test.hpp>
 
+using node::BlockManager;
 using node::SnapshotMetadata;
 
 BOOST_FIXTURE_TEST_SUITE(validation_chainstatemanager_tests, ChainTestingSetup)
@@ -320,6 +321,12 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_activate_snapshot, TestChain100Setup)
                     coins_missing_from_background++;
                 }
             }
+            // Process all callbacks referring to the old manager before wiping it.
+            SyncWithValidationInterfaceQueue();
+            // For robustness, ensure the old manager is destroyed before creating a
+            // new one.
+            m_node.chainman.reset();
+            m_node.chainman = std::make_unique<ChainstateManager>(::Params());
         }
 
         BOOST_CHECK_EQUAL(coins_in_active, initial_total_coins + new_coins);

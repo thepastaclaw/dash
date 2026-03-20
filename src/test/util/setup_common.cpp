@@ -83,6 +83,7 @@
 #include <stdexcept>
 
 using node::BlockAssembler;
+using node::BlockManager;
 using node::CalculateCacheSizes;
 using node::DashChainstateSetup;
 using node::DashChainstateSetupClose;

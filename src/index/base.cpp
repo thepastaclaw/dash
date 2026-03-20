@@ -15,8 +15,9 @@
 #include <warnings.h>
 
 using node::PruneLockInfo;
-using node::ReadBlockFromDisk;
 using node::fPruneMode;
+#include <string>
+#include <utility>
 
 constexpr uint8_t DB_BEST_BLOCK{'B'};
 
@@ -133,8 +134,6 @@ void BaseIndex::ThreadSync()
 {
     const CBlockIndex* pindex = m_best_block_index.load();
     if (!m_synced) {
-        auto& consensus_params = Params().GetConsensus();
-
         std::chrono::steady_clock::time_point last_log_time{0s};
         std::chrono::steady_clock::time_point last_locator_write_time{0s};
         while (true) {
@@ -166,7 +165,7 @@ void BaseIndex::ThreadSync()
             }
 
             CBlock block;
-            if (!ReadBlockFromDisk(block, pindex, consensus_params)) {
+            if (!m_chainstate->m_blockman.ReadBlockFromDisk(block, *pindex)) {
                 FatalError("%s: Failed to read block %s from disk",
                            __func__, pindex->GetBlockHash().ToString());
                 return;

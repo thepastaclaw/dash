@@ -141,7 +141,6 @@
 #endif
 
 using kernel::CoinStatsHashType;
-
 using node::CacheSizes;
 using node::CalculateCacheSizes;
 using node::ChainstateLoadingError;
@@ -1917,7 +1916,11 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
     }
 
 #if ENABLE_ZMQ
-    g_zmq_notification_interface = CZMQNotificationInterface::Create();
+    g_zmq_notification_interface = CZMQNotificationInterface::Create(
+        [&chainman = node.chainman](CBlock& block, const CBlockIndex& index) {
+            assert(chainman);
+            return chainman->m_blockman.ReadBlockFromDisk(block, index);
+        });
 
     if (g_zmq_notification_interface) {
         RegisterValidationInterface(g_zmq_notification_interface.get());
@@ -2411,7 +2414,8 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
     chainman.m_load_block = std::thread(&util::TraceThread, "loadblk", [=, &args, &chainman, &node] {
         // ThreadImport can switch fReindex from true to false, fetch its original state here to use later
         bool skip_evodb_repair_on_reindex = fReindex || fReindexChainState;
-        ThreadImport(chainman, vImportFiles, args);
+        ThreadImport(chainman, vImportFiles, fs::path{});
+        chainman.ActiveChainstate().LoadMempool(args);
 
         // force UpdatedBlockTip to initialize nCachedBlockHeight for DS, MN payments and budgets
         // but don't call it directly to prevent triggering of other listeners like zmq etc.
