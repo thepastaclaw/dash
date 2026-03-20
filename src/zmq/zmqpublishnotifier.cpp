@@ -346,7 +346,7 @@ bool CZMQPublishRawChainLockNotifier::NotifyChainLock(const CBlockIndex *pindex,
     {
         LOCK(cs_main);
         CBlock block;
-        if(!ReadBlockFromDisk(block, pindex, consensusParams))
+        if(!node::ReadBlockFromDisk(block, pindex, consensusParams))
         {
             zmqError("Can't read block from disk");
             return false;
@@ -367,7 +367,7 @@ bool CZMQPublishRawChainLockSigNotifier::NotifyChainLock(const CBlockIndex *pind
     {
         LOCK(cs_main);
         CBlock block;
-        if(!ReadBlockFromDisk(block, pindex, consensusParams))
+        if(!node::ReadBlockFromDisk(block, pindex, consensusParams))
         {
             zmqError("Can't read block from disk");
             return false;
