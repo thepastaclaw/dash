@@ -321,18 +321,18 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_activate_snapshot, TestChain100Setup)
                     coins_missing_from_background++;
                 }
             }
-            // Process all callbacks referring to the old manager before wiping it.
-            SyncWithValidationInterfaceQueue();
-            // For robustness, ensure the old manager is destroyed before creating a
-            // new one.
-            m_node.chainman.reset();
-            m_node.chainman = std::make_unique<ChainstateManager>(::Params());
         }
 
         BOOST_CHECK_EQUAL(coins_in_active, initial_total_coins + new_coins);
         BOOST_CHECK_EQUAL(coins_in_background, initial_total_coins);
         BOOST_CHECK_EQUAL(coins_missing_from_background, new_coins);
     }
+    // Process all callbacks referring to the old manager before wiping it.
+    SyncWithValidationInterfaceQueue();
+    // For robustness, ensure the old manager is destroyed before creating a
+    // new one.
+    m_node.chainman.reset();
+    m_node.chainman = std::make_unique<ChainstateManager>(::Params());
 
     // Snapshot should refuse to load after one has already loaded.
     BOOST_REQUIRE(!CreateAndActivateUTXOSnapshot(m_node, m_path_root));
