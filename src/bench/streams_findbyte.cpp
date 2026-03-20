@@ -4,7 +4,7 @@
 
 #include <bench/bench.h>
 
-#include <util/fs.h>
+#include <fs.h>
 #include <streams.h>
 
 static void FindByte(benchmark::Bench& bench)
