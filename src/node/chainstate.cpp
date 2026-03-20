@@ -6,7 +6,6 @@
 
 #include <chain.h>
 #include <coins.h>
-#include <chainparamsbase.h>
 #include <consensus/params.h>
 #include <deploymentstatus.h>
 #include <node/blockstorage.h>

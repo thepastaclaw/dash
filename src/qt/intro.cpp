@@ -223,7 +223,7 @@ bool Intro::showIfNeeded(bool& did_show_intro, int64_t& prune_MiB)
     {
         /* Use selectParams here to guarantee Params() can be used by node interface */
         try {
-            SelectParams(gArgs.GetChainName());
+            SelectParams(gArgs.GetChainType());
         } catch (const std::exception&) {
             return false;
         }

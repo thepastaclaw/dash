@@ -39,7 +39,7 @@ static void DeserializeAndCheckBlockTest(benchmark::Bench& bench)
     stream.write({&a, 1}); // Prevent compaction
 
     ArgsManager bench_args;
-    const auto chainParams = CreateChainParams(bench_args, CBaseChainParams::MAIN);
+    const auto chainParams = CreateChainParams(bench_args, ChainType::MAIN);
     // CheckBlock calls g_stats_client internally, we aren't using a testing setup
     // so we need to do this manually. We can use the stub interface for this.
     ::g_stats_client = std::make_unique<StatsdClient>();

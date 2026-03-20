@@ -650,7 +650,7 @@ int GuiMain(int argc, char* argv[])
         // - Needs to be done before createOptionsModel
 
         // Check for chain settings (Params() calls are only valid after this clause)
-        SelectParams(gArgs.GetChainName());
+        SelectParams(gArgs.GetChainType());
     } catch(std::exception &e) {
         InitError(Untranslated(strprintf("%s\n", e.what())));
         QMessageBox::critical(nullptr, PACKAGE_NAME, QObject::tr("Error: %1").arg(e.what()));

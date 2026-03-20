@@ -13,7 +13,7 @@
 #include <wallet/test/init_test_fixture.h>
 
 namespace wallet {
-InitWalletDirTestingSetup::InitWalletDirTestingSetup(const std::string& chainName) : BasicTestingSetup(chainName)
+InitWalletDirTestingSetup::InitWalletDirTestingSetup(const ChainType chainType) : BasicTestingSetup(chainType)
 {
     m_coinjoin_loader = interfaces::MakeCoinJoinLoader(m_node);
     m_wallet_loader = MakeWalletLoader(*m_node.chain, m_args, m_node, *Assert(m_coinjoin_loader));

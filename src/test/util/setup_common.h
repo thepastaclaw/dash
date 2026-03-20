@@ -6,7 +6,6 @@
 #ifndef BITCOIN_TEST_UTIL_SETUP_COMMON_H
 #define BITCOIN_TEST_UTIL_SETUP_COMMON_H
 
-#include <chainparamsbase.h>
 #include <fs.h>
 #include <key.h>
 #include <node/caches.h>
@@ -105,7 +104,7 @@ void DashChainstateSetupClose(node::NodeContext& node);
 struct BasicTestingSetup {
     node::NodeContext m_node;
 
-    explicit BasicTestingSetup(const std::string& chainName = CBaseChainParams::MAIN, const std::vector<const char*>& extra_args = {});
+    explicit BasicTestingSetup(const ChainType chainType = ChainType::MAIN, const std::vector<const char*>& extra_args = {});
     ~BasicTestingSetup();
 
     const fs::path m_path_root;
@@ -121,7 +120,7 @@ struct ChainTestingSetup : public BasicTestingSetup {
     bool m_coins_db_in_memory{true};
     bool m_block_tree_db_in_memory{true};
 
-    explicit ChainTestingSetup(const std::string& chainName = CBaseChainParams::MAIN, const std::vector<const char*>& extra_args = {});
+    explicit ChainTestingSetup(const ChainType chainType = ChainType::MAIN, const std::vector<const char*>& extra_args = {});
     ~ChainTestingSetup();
 
     // Supplies a chainstate, if one is needed
@@ -132,7 +131,7 @@ struct ChainTestingSetup : public BasicTestingSetup {
  */
 struct TestingSetup : public ChainTestingSetup {
     explicit TestingSetup(
-        const std::string& chainName = CBaseChainParams::MAIN,
+        const ChainType chainType = ChainType::MAIN,
         const std::vector<const char*>& extra_args = {},
         const bool coins_db_in_memory = true,
         const bool block_tree_db_in_memory = true);
@@ -142,7 +141,7 @@ struct TestingSetup : public ChainTestingSetup {
 /** Identical to TestingSetup, but chain set to regtest */
 struct RegTestingSetup : public TestingSetup {
     RegTestingSetup(const std::vector<const char*>& extra_args = {})
-        : TestingSetup{CBaseChainParams::REGTEST, extra_args} {}
+        : TestingSetup{ChainType::REGTEST, extra_args} {}
 };
 
 class CBlock;
@@ -152,7 +151,7 @@ class CScript;
 struct TestChainSetup : public TestingSetup
 {
     TestChainSetup(int num_blocks,
-                   const std::string& chain_name = CBaseChainParams::REGTEST,
+                   const ChainType chain_type = ChainType::REGTEST,
                    const std::vector<const char*>& extra_args = {});
     ~TestChainSetup();
 
@@ -227,7 +226,7 @@ struct TestChainSetup : public TestingSetup
  * Testing fixture that pre-creates a 100-block REGTEST-mode block chain
  */
 struct TestChain100Setup : public TestChainSetup {
-    TestChain100Setup(const std::string& chain_name = CBaseChainParams::REGTEST,
+    TestChain100Setup(const ChainType chain_type = ChainType::REGTEST,
                       const std::vector<const char*>& extra_args = {});
 };
 
@@ -236,7 +235,7 @@ struct TestChain100Setup : public TestChainSetup {
  * be used in "hot loops", for example fuzzing or benchmarking.
  */
 template <class T = const BasicTestingSetup>
-std::unique_ptr<T> MakeNoLogFileContext(const std::string& chain_name = CBaseChainParams::REGTEST, const std::vector<const char*>& extra_args = {})
+std::unique_ptr<T> MakeNoLogFileContext(const ChainType chain_type = ChainType::REGTEST, const std::vector<const char*>& extra_args = {})
 {
     const std::vector<const char*> arguments = Cat(
         {
@@ -245,7 +244,7 @@ std::unique_ptr<T> MakeNoLogFileContext(const std::string& chain_name = CBaseCha
         },
         extra_args);
 
-    return std::make_unique<T>(chain_name, arguments);
+    return std::make_unique<T>(chain_type, arguments);
 }
 
 CBlock getBlock13b8a();

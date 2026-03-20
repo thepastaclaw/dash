@@ -393,6 +393,7 @@ BITCOIN_CORE_H = \
   unordered_lru_cache.h \
   util/bip32.h \
   util/bytevectorhash.h \
+  util/chaintype.h \
   util/check.h \
   util/edge.h \
   util/epochguard.h \
@@ -994,6 +995,7 @@ libbitcoin_util_a_SOURCES = \
   util/asmap.cpp \
   util/bip32.cpp \
   util/bytevectorhash.cpp \
+  util/chaintype.cpp \
   util/check.cpp \
   util/edge.cpp \
   util/error.cpp \

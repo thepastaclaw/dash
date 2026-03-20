@@ -1549,7 +1549,7 @@ void PeerManagerImpl::PushNodeVersion(CNode& pnode, const Peer& peer)
     pnode.SetSentMNAuthChallenge(mnauthChallenge);
 
     int nProtocolVersion = PROTOCOL_VERSION;
-    if (params.NetworkIDString() != CBaseChainParams::MAIN && gArgs.IsArgSet("-pushversion")) {
+    if (params.NetworkIDString() != ChainTypeToString(ChainType::MAIN) && gArgs.IsArgSet("-pushversion")) {
         nProtocolVersion = gArgs.GetIntArg("-pushversion", PROTOCOL_VERSION);
     }
 
@@ -3877,7 +3877,7 @@ void PeerManagerImpl::ProcessMessage(
             PushNodeVersion(pfrom, *peer);
         }
 
-        if (Params().NetworkIDString() == CBaseChainParams::DEVNET) {
+        if (Params().NetworkIDString() == ChainTypeToString(ChainType::DEVNET)) {
             if (cleanSubVer.find(strprintf("devnet.%s", gArgs.GetDevNetName())) == std::string::npos) {
                 LogPrintf("connected to wrong devnet. Reported version is %s, expected devnet name is %s\n", cleanSubVer, gArgs.GetDevNetName());
                 if (!pfrom.IsInboundConn())

@@ -713,7 +713,7 @@ bool CCoinJoinClientSession::DoAutomaticDenominating(ChainstateManager& chainman
         }
 
         if (m_dmnman.GetListAtChainTip().GetCounts().enabled() == 0 &&
-            Params().NetworkIDString() != CBaseChainParams::REGTEST) {
+            Params().NetworkIDString() != ChainTypeToString(ChainType::REGTEST)) {
             strAutoDenomResult = _("No Masternodes detected.");
             WalletCJLogPrint(m_wallet, "CCoinJoinClientSession::DoAutomaticDenominating -- %s\n", strAutoDenomResult.original);
             return false;
@@ -953,8 +953,8 @@ CDeterministicMNCPtr CCoinJoinClientManager::GetRandomNotUsedMasternode()
 
 static int WinnersToSkip()
 {
-    return (Params().NetworkIDString() == CBaseChainParams::DEVNET ||
-            Params().NetworkIDString() == CBaseChainParams::REGTEST)
+    return (Params().NetworkIDString() == ChainTypeToString(ChainType::DEVNET) ||
+            Params().NetworkIDString() == ChainTypeToString(ChainType::REGTEST))
             ? 1 : 8;
 }
 

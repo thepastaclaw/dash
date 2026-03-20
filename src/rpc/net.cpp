@@ -397,7 +397,7 @@ static RPCHelpMan addconnection()
         },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
 {
-    if (Params().NetworkIDString() != CBaseChainParams::REGTEST) {
+    if (Params().NetworkIDString() != ChainTypeToString(ChainType::REGTEST)) {
         throw std::runtime_error("addconnection is for regression testing (-regtest mode) only.");
     }
 
@@ -1111,7 +1111,7 @@ static RPCHelpMan setmnthreadactive()
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
 {
 
-    if (Params().NetworkIDString() != CBaseChainParams::REGTEST) {
+    if (Params().NetworkIDString() != ChainTypeToString(ChainType::REGTEST)) {
         throw std::runtime_error("setmnthreadactive is for regression testing (-regtest mode) only.");
     }
 

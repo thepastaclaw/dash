@@ -214,7 +214,7 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     pblock->nVersion = m_chainstate.m_chainman.m_versionbitscache.ComputeBlockVersion(pindexPrev, chainparams.GetConsensus());
     // Non-mainnet only: allow overriding block.nVersion with
     // -blockversion=N to test forking scenarios
-    if (Params().NetworkIDString() != CBaseChainParams::MAIN) {
+    if (Params().NetworkIDString() != ChainTypeToString(ChainType::MAIN)) {
         pblock->nVersion = gArgs.GetIntArg("-blockversion", pblock->nVersion);
     }
 

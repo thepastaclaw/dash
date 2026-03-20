@@ -5,6 +5,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <chainparams.h>
+#include <chainparamsbase.h>
 
 #include <llmq/params.h>
 #include <util/std23.h>
@@ -158,7 +159,7 @@ std::optional<Consensus::LLMQParams> CChainParams::GetLLMQ(Consensus::LLMQType l
 class CMainParams : public CChainParams {
 public:
     CMainParams() {
-        strNetworkID = CBaseChainParams::MAIN;
+        strNetworkID = ChainTypeToString(ChainType::MAIN);
         consensus.nSubsidyHalvingInterval = 210240; // Note: actual number of blocks per calendar year with DGW v3 is ~200700 (for example 449750 - 249050)
         consensus.nMasternodePaymentsStartBlock = 100000; // not true, but it's ok as long as it's less then nMasternodePaymentsIncreaseBlock
         consensus.nMasternodePaymentsIncreaseBlock = 158000; // actual historical value
@@ -355,7 +356,7 @@ public:
 class CTestNetParams : public CChainParams {
 public:
     CTestNetParams() {
-        strNetworkID = CBaseChainParams::TESTNET;
+        strNetworkID = ChainTypeToString(ChainType::TESTNET);
         consensus.nSubsidyHalvingInterval = 210240;
         consensus.nMasternodePaymentsStartBlock = 4010; // not true, but it's ok as long as it's less then nMasternodePaymentsIncreaseBlock
         consensus.nMasternodePaymentsIncreaseBlock = 4030;
@@ -528,7 +529,7 @@ public:
 class CDevNetParams : public CChainParams {
 public:
     explicit CDevNetParams(const ArgsManager& args) {
-        strNetworkID = CBaseChainParams::DEVNET;
+        strNetworkID = ChainTypeToString(ChainType::DEVNET);
         consensus.nSubsidyHalvingInterval = 210240;
         consensus.nMasternodePaymentsStartBlock = 4010; // not true, but it's ok as long as it's less then nMasternodePaymentsIncreaseBlock
         consensus.nMasternodePaymentsIncreaseBlock = 4030;
@@ -759,7 +760,7 @@ public:
 class CRegTestParams : public CChainParams {
 public:
     explicit CRegTestParams(const ArgsManager& args) {
-        strNetworkID =  CBaseChainParams::REGTEST;
+        strNetworkID = ChainTypeToString(ChainType::REGTEST);
         consensus.nSubsidyHalvingInterval = 150;
         consensus.nMasternodePaymentsStartBlock = 240;
         consensus.nMasternodePaymentsIncreaseBlock = 350;
@@ -1349,24 +1350,25 @@ const CChainParams &Params() {
     return *globalChainParams;
 }
 
-std::unique_ptr<const CChainParams> CreateChainParams(const ArgsManager& args, const std::string& chain)
+std::unique_ptr<const CChainParams> CreateChainParams(const ArgsManager& args, const ChainType chain)
 {
-    if (chain == CBaseChainParams::MAIN) {
+    switch (chain) {
+    case ChainType::MAIN:
         return std::unique_ptr<CChainParams>(new CMainParams());
-    } else if (chain == CBaseChainParams::TESTNET) {
+    case ChainType::TESTNET:
         return std::unique_ptr<CChainParams>(new CTestNetParams());
-    } else if (chain == CBaseChainParams::DEVNET) {
+    case ChainType::DEVNET:
         return std::unique_ptr<CChainParams>(new CDevNetParams(args));
-    } else if (chain == CBaseChainParams::REGTEST) {
+    case ChainType::REGTEST:
         return std::unique_ptr<CChainParams>(new CRegTestParams(args));
     }
-    throw std::runtime_error(strprintf("%s: Unknown chain %s.", __func__, chain));
+    throw std::invalid_argument(strprintf("%s: Invalid ChainType value", __func__));
 }
 
-void SelectParams(const std::string& network)
+void SelectParams(const ChainType chain)
 {
-    SelectBaseParams(network);
-    globalChainParams = CreateChainParams(gArgs, network);
+    SelectBaseParams(chain);
+    globalChainParams = CreateChainParams(gArgs, chain);
 }
 
 void SetupChainParamsOptions(ArgsManager& argsman)

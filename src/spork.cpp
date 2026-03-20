@@ -388,7 +388,7 @@ bool CSporkMessage::Sign(const CKey& key)
     CKeyID pubKeyId = key.GetPubKey().GetID();
 
     // Harden Spork6 so that it is active on testnet and no other networks
-    if (std::string strError; Params().NetworkIDString() == CBaseChainParams::TESTNET) {
+    if (std::string strError; Params().NetworkIDString() == ChainTypeToString(ChainType::TESTNET)) {
         uint256 hash = GetSignatureHash();
 
         if (!CHashSigner::SignHash(hash, key, vchSig)) {
@@ -420,7 +420,7 @@ bool CSporkMessage::Sign(const CKey& key)
 bool CSporkMessage::CheckSignature(const CKeyID& pubKeyId) const
 {
     // Harden Spork6 so that it is active on testnet and no other networks
-    if (std::string strError; Params().NetworkIDString() == CBaseChainParams::TESTNET) {
+    if (std::string strError; Params().NetworkIDString() == ChainTypeToString(ChainType::TESTNET)) {
         uint256 hash = GetSignatureHash();
 
         if (!CHashSigner::VerifyHash(hash, pubKeyId, vchSig, strError)) {
@@ -443,7 +443,7 @@ std::optional<CKeyID> CSporkMessage::GetSignerKeyID() const
 {
     CPubKey pubkeyFromSig;
     // Harden Spork6 so that it is active on testnet and no other networks
-    if (Params().NetworkIDString() == CBaseChainParams::TESTNET) {
+    if (Params().NetworkIDString() == ChainTypeToString(ChainType::TESTNET)) {
         if (!pubkeyFromSig.RecoverCompact(GetSignatureHash(), vchSig)) {
             return std::nullopt;
         }

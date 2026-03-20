@@ -3,7 +3,6 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <chainparams.h>
-#include <chainparamsbase.h>
 #include <key.h>
 #include <pubkey.h>
 #include <script/sigcache.h>
@@ -19,7 +18,7 @@
 void initialize_script_sigcache()
 {
     ECC_Start();
-    SelectParams(CBaseChainParams::REGTEST);
+    SelectParams(ChainType::REGTEST);
     InitSignatureCache();
 }
 

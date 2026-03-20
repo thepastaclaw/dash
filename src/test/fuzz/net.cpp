@@ -4,7 +4,6 @@
 
 #include <addrman.h>
 #include <chainparams.h>
-#include <chainparamsbase.h>
 #include <net.h>
 #include <net_permissions.h>
 #include <netaddress.h>
@@ -33,7 +32,7 @@ int32_t GetCheckRatio()
 
 void initialize_net()
 {
-    static const auto testing_setup = MakeNoLogFileContext<>(CBaseChainParams::MAIN);
+    static const auto testing_setup = MakeNoLogFileContext<>(ChainType::MAIN);
     g_setup = testing_setup.get();
 }
 
