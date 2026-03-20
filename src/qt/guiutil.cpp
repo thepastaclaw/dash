@@ -23,6 +23,7 @@
 #include <script/script.h>
 #include <script/standard.h>
 #include <util/system.h>
+#include <util/chaintype.h>
 #include <util/time.h>
 
 #include <cmath>
@@ -707,10 +708,10 @@ bool LabelOutOfFocusEventFilter::eventFilter(QObject* watched, QEvent* event)
 #ifdef WIN32
 fs::path static StartupShortcutPath()
 {
-    std::string chain = gArgs.GetChainName();
-    if (chain == CBaseChainParams::MAIN)
+    std::string chain = gArgs.GetChainTypeString();
+    if (chain == ChainTypeToString(ChainType::MAIN))
         return GetSpecialFolderPath(CSIDL_STARTUP) / "Dash Core.lnk";
-    if (chain == CBaseChainParams::TESTNET) // Remove this special case when CBaseChainParams::TESTNET = "testnet4"
+    if (chain == ChainTypeToString(ChainType::TESTNET)) // Remove this special case when CBaseChainParams::TESTNET = "testnet4"
         return GetSpecialFolderPath(CSIDL_STARTUP) / "Dash Core (testnet).lnk";
     return GetSpecialFolderPath(CSIDL_STARTUP) / fs::u8path(strprintf("Dash Core (%s).lnk", chain));
 }
@@ -745,7 +746,7 @@ bool SetStartOnSystemStartup(bool fAutoStart)
             // Start client minimized
             QString strArgs = "-min";
             // Set -testnet /-regtest options
-            strArgs += QString::fromStdString(strprintf(" -chain=%s", gArgs.GetChainName()));
+            strArgs += QString::fromStdString(strprintf(" -chain=%s", gArgs.GetChainTypeString()));
 
             // Set the path to the shortcut target
             psl->SetPath(pszExePath);
@@ -790,8 +791,8 @@ fs::path static GetAutostartDir()
 
 fs::path static GetAutostartFilePath()
 {
-    std::string chain = gArgs.GetChainName();
-    if (chain == CBaseChainParams::MAIN)
+    std::string chain = gArgs.GetChainTypeString();
+    if (chain == ChainTypeToString(ChainType::MAIN))
         return GetAutostartDir() / "dashcore.desktop";
     return GetAutostartDir() / fs::u8path(strprintf("dashcore-%s.desktop", chain));
 }
@@ -833,11 +834,11 @@ bool SetStartOnSystemStartup(bool fAutoStart)
         std::ofstream optionFile{GetAutostartFilePath(), std::ios_base::out | std::ios_base::trunc};
         if (!optionFile.good())
             return false;
-        std::string chain = gArgs.GetChainName();
+        std::string chain = gArgs.GetChainTypeString();
         // Write a dashcore.desktop file to the autostart directory:
         optionFile << "[Desktop Entry]\n";
         optionFile << "Type=Application\n";
-        if (chain == CBaseChainParams::MAIN)
+        if (chain == ChainTypeToString(ChainType::MAIN))
             optionFile << "Name=Dash Core\n";
         else
             optionFile << strprintf("Name=Dash Core (%s)\n", chain);

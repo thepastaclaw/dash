@@ -15,7 +15,7 @@
 
 void initialize_parse_univalue()
 {
-    SelectParams(CBaseChainParams::REGTEST);
+    SelectParams(ChainType::REGTEST);
 }
 
 FUZZ_TARGET(parse_univalue, .init = initialize_parse_univalue)

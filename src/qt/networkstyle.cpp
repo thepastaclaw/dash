@@ -10,9 +10,8 @@
 
 #include <chainparams.h>
 #include <tinyformat.h>
+#include <util/chaintype.h>
 #include <util/system.h>
-
-#include <chainparamsbase.h>
 
 #include <QApplication>
 
@@ -100,7 +99,7 @@ NetworkStyle::NetworkStyle(const QString &_appName, const int iconColorHueShift,
 
 const NetworkStyle* NetworkStyle::instantiate(const std::string& networkId)
 {
-    std::string titleAddText = networkId == CBaseChainParams::MAIN ? "" : strprintf("[%s]", networkId);
+    std::string titleAddText = networkId == ChainTypeToString(ChainType::MAIN) ? "" : strprintf("[%s]", networkId);
     for (const auto& network_style : network_styles)
     {
         if (networkId == network_style.networkId)
@@ -108,7 +107,7 @@ const NetworkStyle* NetworkStyle::instantiate(const std::string& networkId)
             std::string appName = network_style.appName;
             std::string titleAddText = network_style.titleAddText;
 
-            if (networkId == CBaseChainParams::DEVNET.c_str()) {
+            if (networkId == ChainTypeToString(ChainType::DEVNET)) {
                 appName = strprintf(appName, gArgs.GetDevNetName());
                 titleAddText = strprintf(titleAddText, gArgs.GetDevNetName());
             }

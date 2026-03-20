@@ -362,7 +362,7 @@ std::vector<QuorumMembers> BuildNewQuorumQuarterMembers(const Consensus::LLMQPar
 
     bool skipRemovedMNs = DeploymentActiveAfter(util_params.m_base_index, util_params.m_chainman.GetConsensus(),
                                                 Consensus::DEPLOYMENT_V19) ||
-                          (util_params.m_chainman.GetParams().NetworkIDString() == CBaseChainParams::TESTNET);
+                          (util_params.m_chainman.GetParams().NetworkIDString() == ChainTypeToString(ChainType::TESTNET));
 
     for (const size_t idx : util::irange(nQuorums)) {
         for (auto* prev_cycle : previousQuarters.GetCycles()) {

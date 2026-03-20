@@ -32,7 +32,7 @@
 
 void initialize_script()
 {
-    SelectParams(CBaseChainParams::REGTEST);
+    SelectParams(ChainType::REGTEST);
 }
 
 FUZZ_TARGET(script, .init = initialize_script)

@@ -5,7 +5,7 @@
 
 #include <qt/bitcoinunits.h>
 #include <chainparams.h>
-
+#include <util/chaintype.h>
 #include <consensus/amount.h>
 
 #include <QSettings>
@@ -33,7 +33,7 @@ QList<BitcoinUnit> BitcoinUnits::availableUnits()
 
 QString BitcoinUnits::name(Unit unit)
 {
-    const bool is_mainnet{Params().NetworkIDString() == CBaseChainParams::MAIN};
+    const bool is_mainnet{Params().NetworkIDString() == ChainTypeToString(ChainType::MAIN)};
     switch (unit) {
     case Unit::DASH:  return is_mainnet ? QString("DASH") : QString("tDASH");
     case Unit::mDASH: return is_mainnet ? QString("mDASH") : QString("mtDASH");
@@ -45,7 +45,7 @@ QString BitcoinUnits::name(Unit unit)
 
 QString BitcoinUnits::description(Unit unit)
 {
-    const QString maybe_prefix{Params().NetworkIDString() == CBaseChainParams::MAIN ? "" : "Test"};
+    const QString maybe_prefix{Params().NetworkIDString() == ChainTypeToString(ChainType::MAIN) ? "" : "Test"};
     switch(unit) {
     case Unit::DASH:  return QString("%1Dash");
     case Unit::mDASH: return QString("Milli-%1Dash (1 / 1" THIN_SP_UTF8 "000)").arg(maybe_prefix);

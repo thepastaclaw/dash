@@ -10,7 +10,7 @@
 static void Logging(benchmark::Bench& bench, const std::vector<const char*>& extra_args, const std::function<void()>& log)
 {
     TestingSetup test_setup{
-        CBaseChainParams::REGTEST,
+        ChainType::REGTEST,
         extra_args,
     };
 

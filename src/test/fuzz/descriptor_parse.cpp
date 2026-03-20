@@ -12,7 +12,7 @@
 void initialize_descriptor_parse()
 {
     ECC_Start();
-    SelectParams(CBaseChainParams::MAIN);
+    SelectParams(ChainType::MAIN);
 }
 
 FUZZ_TARGET(descriptor_parse, .init = initialize_descriptor_parse)

@@ -969,7 +969,7 @@ struct TestChainV19Setup : public TestChainV19BeforeActivationSetup {
 
 // 5 blocks earlier
 TestChainV19BeforeActivationSetup::TestChainV19BeforeActivationSetup() :
-    TestChainSetup(494, CBaseChainParams::REGTEST, {"-testactivationheight=v19@500", "-testactivationheight=v20@500", "-testactivationheight=mn_rr@500"})
+    TestChainSetup(494, ChainType::REGTEST, {"-testactivationheight=v19@500", "-testactivationheight=v20@500", "-testactivationheight=mn_rr@500"})
 {
     bool v19_active{DeploymentActiveAfter(m_node.chainman->ActiveChain().Tip(), m_node.chainman->GetConsensus(),
                                           Consensus::DEPLOYMENT_V19)};

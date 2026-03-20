@@ -1483,14 +1483,14 @@ static std::pair<CAmount, CAmount> GetBlockSubsidyHelper(int nPrevBits, int nPre
     double dDiff;
     CAmount nSubsidyBase;
 
-    if (nPrevHeight <= 4500 && Params().NetworkIDString() == CBaseChainParams::MAIN) {
+    if (nPrevHeight <= 4500 && Params().NetworkIDString() == ChainTypeToString(ChainType::MAIN)) {
         /* a bug which caused diff to not be correctly calculated */
         dDiff = (double)0x0000ffff / (double)(nPrevBits & 0x00ffffff);
     } else {
         dDiff = ConvertBitsToDouble(nPrevBits);
     }
 
-    const bool isDevnet = Params().NetworkIDString() == CBaseChainParams::DEVNET;
+    const bool isDevnet = Params().NetworkIDString() == ChainTypeToString(ChainType::DEVNET);
     const bool force_fixed_base_subsidy = fV20Active || (isDevnet && nPrevHeight >= consensusParams.nHighSubsidyBlocks);
     if (force_fixed_base_subsidy) {
         // Originally, nSubsidyBase calculations relied on difficulty. Once Platform is live,
@@ -4061,7 +4061,7 @@ static bool ContextualCheckBlockHeader(const CBlockHeader& block, BlockValidatio
     const int nHeight = pindexPrev->nHeight + 1;
 
     // Check proof of work
-    if (chainman.GetParams().NetworkIDString() == CBaseChainParams::MAIN && nHeight <= 68589){
+    if (chainman.GetParams().NetworkIDString() == ChainTypeToString(ChainType::MAIN) && nHeight <= 68589){
         // architecture issues with DGW v1 and v2)
         unsigned int nBitsNext = GetNextWorkRequired(pindexPrev, &block, chainman.GetConsensus());
         double n1 = ConvertBitsToDouble(block.nBits);
@@ -5050,7 +5050,7 @@ bool CChainState::LoadGenesisBlock()
         if (!AddGenesisBlock(m_params.GenesisBlock(), state))
             return false;
 
-        if (m_params.NetworkIDString() == CBaseChainParams::DEVNET) {
+        if (m_params.NetworkIDString() == ChainTypeToString(ChainType::DEVNET)) {
             // We can't continue if devnet genesis block is invalid
             std::shared_ptr<const CBlock> shared_pblock = std::make_shared<const CBlock>(
                     m_params.DevNetGenesisBlock());
@@ -6032,8 +6032,8 @@ bool ChainstateManager::IsQuorumTypeEnabled(const Consensus::LLMQType llmqType,
     case Consensus::LLMQType::LLMQ_DEVNET:
         return true;
     case Consensus::LLMQType::LLMQ_50_60:
-        return !fDIP0024IsActive || !fHaveDIP0024Quorums || m_chainparams.NetworkIDString() == CBaseChainParams::TESTNET ||
-               m_chainparams.NetworkIDString() == CBaseChainParams::DEVNET;
+        return !fDIP0024IsActive || !fHaveDIP0024Quorums || m_chainparams.NetworkIDString() == ChainTypeToString(ChainType::TESTNET) ||
+               m_chainparams.NetworkIDString() == ChainTypeToString(ChainType::DEVNET);
     case Consensus::LLMQType::LLMQ_TEST_INSTANTSEND:
         return !fDIP0024IsActive || !fHaveDIP0024Quorums ||
                m_chainparams.GetConsensus().llmqTypeDIP0024InstantSend == Consensus::LLMQType::LLMQ_TEST_INSTANTSEND;

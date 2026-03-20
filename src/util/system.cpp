@@ -273,7 +273,7 @@ std::set<std::string> ArgsManager::GetUnsuitableSectionOnlyArgs() const
     if (m_network.empty()) return std::set<std::string> {};
 
     // if it's okay to use the default section for this network, don't worry
-    if (m_network == CBaseChainParams::MAIN) return std::set<std::string> {};
+    if (m_network == ChainTypeToString(ChainType::MAIN)) return std::set<std::string> {};
 
     for (const auto& arg : m_network_only_args) {
         if (OnlyHasDefaultSectionSetting(m_settings, m_network, SettingName(arg))) {
@@ -287,10 +287,10 @@ std::list<SectionInfo> ArgsManager::GetUnrecognizedSections() const
 {
     // Section names to be recognized in the config file.
     static const std::set<std::string> available_sections{
-        CBaseChainParams::REGTEST,
-        CBaseChainParams::DEVNET,
-        CBaseChainParams::TESTNET,
-        CBaseChainParams::MAIN,
+        ChainTypeToString(ChainType::REGTEST),
+        ChainTypeToString(ChainType::DEVNET),
+        ChainTypeToString(ChainType::TESTNET),
+        ChainTypeToString(ChainType::MAIN),
     };
 
     LOCK(cs_args);
@@ -628,7 +628,7 @@ util::SettingsValue ArgsManager::GetPersistentSetting(const std::string& name) c
 {
     LOCK(cs_args);
     return util::GetSetting(m_settings, m_network, name, !UseDefaultSection("-" + name),
-        /*ignore_nonpersistent=*/true, /*get_chain_name=*/false);
+        /*ignore_nonpersistent=*/true, /*get_chain_type=*/false);
 }
 
 bool ArgsManager::IsArgNegated(const std::string& strArg) const
@@ -826,7 +826,7 @@ void ArgsManager::ForceRemoveArg(const std::string& strArg)
         m_settings.forced_settings.erase(ov);
     }
 
-    for (const auto& network : { CBaseChainParams::MAIN, CBaseChainParams::TESTNET, CBaseChainParams::REGTEST, CBaseChainParams::DEVNET }) {
+    for (const auto& network : { ChainTypeToString(ChainType::MAIN), ChainTypeToString(ChainType::TESTNET), ChainTypeToString(ChainType::REGTEST), ChainTypeToString(ChainType::DEVNET) }) {
         if (auto* section = util::FindKey(m_settings.ro_config, network)) {
             if (util::FindKey(*section, strArg)) {
                 section->erase(strArg);
@@ -1035,7 +1035,7 @@ bool ArgsManager::ReadConfigFiles(std::string& error, bool ignore_invalid_keys)
             }
         }
         if (use_conf_file) {
-            std::string chain_id = GetChainName();
+            std::string chain_id = GetChainTypeString();
             std::vector<std::string> conf_file_names;
 
             auto add_includes = [&](const std::string& network, size_t skip = 0) {
@@ -1074,7 +1074,7 @@ bool ArgsManager::ReadConfigFiles(std::string& error, bool ignore_invalid_keys)
             conf_file_names.clear();
             add_includes(chain_id, /* skip= */ chain_includes);
             add_includes({}, /* skip= */ default_includes);
-            std::string chain_id_final = GetChainName();
+            std::string chain_id_final = GetChainTypeString();
             if (chain_id_final != chain_id) {
                 // Also warn about recursive includeconf for the chain that was specified in one of the includeconfs
                 add_includes(chain_id_final);
@@ -1101,14 +1101,28 @@ bool ArgsManager::ReadConfigFiles(std::string& error, bool ignore_invalid_keys)
     return true;
 }
 
-std::string ArgsManager::GetChainName() const
+ChainType ArgsManager::GetChainType() const
+{
+    std::variant<ChainType, std::string> arg = GetChainArg();
+    if (auto* parsed = std::get_if<ChainType>(&arg)) return *parsed;
+    throw std::runtime_error(strprintf("Unknown chain %s.", std::get<std::string>(arg)));
+}
+
+std::string ArgsManager::GetChainTypeString() const
+{
+    auto arg = GetChainArg();
+    if (auto* parsed = std::get_if<ChainType>(&arg)) return ChainTypeToString(*parsed);
+    return std::get<std::string>(arg);
+}
+
+std::variant<ChainType, std::string> ArgsManager::GetChainArg() const
 {
     auto get_net = [&](const std::string& arg, bool interpret_bool = true) {
         LOCK(cs_args);
         util::SettingsValue value = util::GetSetting(m_settings, /* section= */ "", SettingName(arg),
             /* ignore_default_section_config= */ false,
             /*ignore_nonpersistent=*/false,
-            /* get_chain_name= */ true);
+            /* get_chain_type= */ true);
         return value.isNull() ? false : value.isBool() ? value.get_bool() : (!interpret_bool || InterpretBool(value.get_str()));
     };
 
@@ -1121,15 +1135,16 @@ std::string ArgsManager::GetChainName() const
     if (nameParamsCount > 1)
         throw std::runtime_error("Only one of -regtest, -testnet, -devnet or -chain can be used.");
 
-    if (fRegTest)
-        return CBaseChainParams::REGTEST;
-    if (fDevNet) {
-        return CBaseChainParams::DEVNET;
+    if (is_chain_arg_set) {
+        std::string chain_arg = GetArg("-chain", "main");
+        if (auto parsed = ChainTypeFromString(chain_arg)) return *parsed;
+        // Not a known string, so return original string
+        return chain_arg;
     }
-    if (fTestNet)
-        return CBaseChainParams::TESTNET;
-
-    return GetArg("-chain", CBaseChainParams::MAIN);
+    if (fRegTest) return ChainType::REGTEST;
+    if (fDevNet) return ChainType::DEVNET;
+    if (fTestNet) return ChainType::TESTNET;
+    return ChainType::MAIN;
 }
 
 std::string ArgsManager::GetDevNetName() const
@@ -1170,7 +1185,7 @@ void ArgsManager::LogArgs() const
 
 bool ArgsManager::UseDefaultSection(const std::string& arg) const
 {
-    return m_network == CBaseChainParams::MAIN || m_network_only_args.count(arg) == 0;
+    return m_network == ChainTypeToString(ChainType::MAIN) || m_network_only_args.count(arg) == 0;
 }
 
 util::SettingsValue ArgsManager::GetSetting(const std::string& arg) const
@@ -1178,7 +1193,7 @@ util::SettingsValue ArgsManager::GetSetting(const std::string& arg) const
     LOCK(cs_args);
     return util::GetSetting(
         m_settings, m_network, SettingName(arg), !UseDefaultSection(arg),
-        /*ignore_nonpersistent=*/false, /*get_chain_name=*/false);
+        /*ignore_nonpersistent=*/false, /*get_chain_type=*/false);
 }
 
 std::vector<util::SettingsValue> ArgsManager::GetSettingsList(const std::string& arg) const
