@@ -105,25 +105,21 @@ class RawTransactionsTest(BitcoinTestFramework):
                 assert_equal(self.nodes[n].getrawtransaction(txId), tx['hex'])
                 assert_equal(self.nodes[n].getrawtransactionmulti({"0":[txId]})[txId], tx['hex'])
 
-                # 2. valid parameters - supply txid and 0 for non-verbose
-                assert_equal(self.nodes[n].getrawtransaction(txId, 0), tx['hex'])
-                assert_equal(self.nodes[n].getrawtransactionmulti({"0":[txId]}, 0)[txId], tx['hex'])
-
-                # 3. valid parameters - supply txid and False for non-verbose
+                # 2. valid parameters - supply txid and False for non-verbose
                 assert_equal(self.nodes[n].getrawtransaction(txId, False), tx['hex'])
                 assert_equal(self.nodes[n].getrawtransactionmulti({"0":[txId]}, False)[txId], tx['hex'])
 
-                # 4. valid parameters - supply txid and 1 for verbose.
+                # 3. valid parameters - supply txid and True for verbose.
                 # We only check the "hex" field of the output so we don't need to update this test every time the output format changes.
-                assert_equal(self.nodes[n].getrawtransaction(txId, 1)["hex"], tx['hex'])
-                assert_equal(self.nodes[n].getrawtransactionmulti({"0":[txId]}, 1)[txId]['hex'], tx['hex'])
+                assert_equal(self.nodes[n].getrawtransaction(txId, True)["hex"], tx['hex'])
+                assert_equal(self.nodes[n].getrawtransactionmulti({"0":[txId]}, True)[txId]['hex'], tx['hex'])
 
-                # 5. valid parameters - supply txid and True for non-verbose
+                # 4. valid parameters - supply txid and True for verbose (named args)
                 assert_equal(self.nodes[n].getrawtransaction(txId, True)["hex"], tx['hex'])
                 assert_equal(self.nodes[n].getrawtransactionmulti(verbose=True, transactions={"0":[txId]})[txId]['hex'], tx['hex'])
             else:
                 # Without -txindex, expect to raise.
-                for verbose in [None, 0, False, 1, True]:
+                for verbose in [None, False, True]:
                     assert_raises_rpc_error(-5, err_msg, self.nodes[n].getrawtransaction, txId, verbose)
                     # getrawtransactionmulti does not need -txindex
                     assert_equal(self.nodes[n].getrawtransactionmulti({"0":[txId]}, verbose)[txId], "None")

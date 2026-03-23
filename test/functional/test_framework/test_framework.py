@@ -1273,7 +1273,7 @@ class MasternodeInfo:
             ownerAddr or self.ownerAddr,
             pubKeyOperator or self.pubKeyOperator,
             votingAddr or self.votingAddr,
-            operator_reward or self.operator_reward,
+            str(operator_reward if operator_reward is not None else self.operator_reward),
             rewards_address or self.rewards_address,
         ]
         address_funds = fundsAddr or self.fundsAddr
@@ -1327,7 +1327,7 @@ class MasternodeInfo:
             ownerAddr or self.ownerAddr,
             pubKeyOperator or self.pubKeyOperator,
             votingAddr or self.votingAddr,
-            operator_reward or self.operator_reward,
+            str(operator_reward if operator_reward is not None else self.operator_reward),
             rewards_address or self.rewards_address,
         ]
         address_funds = fundsAddr or self.fundsAddr

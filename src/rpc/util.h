@@ -198,10 +198,10 @@ struct RPCArg {
     const RPCArgOptions m_opts;
 
     RPCArg(
-        const std::string name,
-        const Type type,
-        const Fallback fallback,
-        const std::string description,
+        std::string name,
+        Type type,
+        Fallback fallback,
+        std::string description,
         RPCArgOptions opts = {})
         : m_names{std::move(name)},
           m_type{std::move(type)},
@@ -213,11 +213,11 @@ struct RPCArg {
     }
 
     RPCArg(
-        const std::string name,
-        const Type type,
-        const Fallback fallback,
-        const std::string description,
-        const std::vector<RPCArg> inner,
+        std::string name,
+        Type type,
+        Fallback fallback,
+        std::string description,
+        std::vector<RPCArg> inner,
         RPCArgOptions opts = {})
         : m_names{std::move(name)},
           m_type{std::move(type)},
