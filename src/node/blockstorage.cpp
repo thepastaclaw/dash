@@ -32,6 +32,7 @@ uint64_t nPruneTarget = 0;
 bool fAddressIndex = DEFAULT_ADDRESSINDEX;
 bool fTimestampIndex = DEFAULT_TIMESTAMPINDEX;
 bool fSpentIndex = DEFAULT_SPENTINDEX;
+std::atomic_bool g_indexes_ready_to_sync{false};
 
 bool CBlockIndexWorkComparator::operator()(const CBlockIndex* pa, const CBlockIndex* pb) const
 {
@@ -909,5 +910,6 @@ void ThreadImport(ChainstateManager& chainman, std::vector<fs::path> vImportFile
     } // End scope of CImportingNow
 
     chainman.ActiveChainstate().LoadMempool(args);
+    g_indexes_ready_to_sync = true;
 }
 } // namespace node

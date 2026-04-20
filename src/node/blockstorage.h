@@ -64,6 +64,7 @@ extern bool fAddressIndex;
 extern bool fTimestampIndex;
 /** True if we're running in -spentindex mode. */
 extern bool fSpentIndex;
+extern std::atomic_bool g_indexes_ready_to_sync;
 
 // Because validation code takes pointers to the map's CBlockIndex objects, if
 // we ever switch to another associative container, we need to either use a

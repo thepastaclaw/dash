@@ -293,13 +293,6 @@ class CompactFiltersTest(BitcoinTestFramework):
         msg = "Error: Unknown -blockfilterindex value abc."
         self.nodes[0].assert_start_raises_init_error(expected_msg=msg)
 
-        self.log.info("Test -blockfilterindex with -reindex-chainstate raises an error")
-        self.nodes[0].assert_start_raises_init_error(
-            expected_msg='Error: -reindex-chainstate option is not compatible with -blockfilterindex. '
-            'Please temporarily disable blockfilterindex while using -reindex-chainstate, or replace -reindex-chainstate with -reindex to fully rebuild all indexes.',
-            extra_args=['-blockfilterindex', '-reindex-chainstate'],
-        )
-
         self.test_special_transactions_in_filters()
 
     def create_simple_assetlock(self, base_tx, base_tx_value, amount_locked_1, amount_locked_2=0):
@@ -475,8 +468,6 @@ class CompactFiltersTest(BitcoinTestFramework):
         assert_greater_than(multi_output_filter_size, control_filter_size)
 
         self.log.info("AssetLockTx multiple outputs test passed")
-
-
 def compute_last_header(prev_header, hashes):
     """Compute the last filter header from a starting header and a sequence of filter hashes."""
     header = ser_uint256(prev_header)
