@@ -248,11 +248,11 @@ void DashChainstateSetupClose(std::unique_ptr<CChainstateHelper>& chain_helper,
                               CTxMemPool* mempool)
 
 {
-    chain_helper.reset();
-    llmq_ctx.reset();
     if (mempool) {
         mempool->DisconnectManagers();
     }
+    chain_helper.reset();
+    llmq_ctx.reset();
     dmnman.reset();
 }
 
