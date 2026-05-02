@@ -806,6 +806,8 @@ private:
     void RelayAddress(NodeId originator, const CAddress& addr, bool fReachable)
         EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex, g_msgproc_mutex);
 
+    bool LegacySporkP2PEnabled() const { return m_chainparams.NetworkIDString() != CBaseChainParams::MAIN; }
+
     const CChainParams& m_chainparams;
     CConnman& m_connman;
     AddrMan& m_addrman;
@@ -2930,7 +2932,7 @@ void PeerManagerImpl::ProcessGetData(CNode& pfrom, Peer& peer, const std::atomic
             }
         }
 
-        if (!push && inv.type == MSG_SPORK) {
+        if (LegacySporkP2PEnabled() && !push && inv.type == MSG_SPORK) {
             if (auto opt_spork = m_sporkman.GetSporkByHash(inv.hash)) {
                 m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::SPORK, *opt_spork));
                 push = true;
@@ -4387,6 +4389,9 @@ void PeerManagerImpl::ProcessMessage(
                         pfrom.fDisconnect = true;
                         return;
                     }
+                    if (!LegacySporkP2PEnabled() && inv.type == MSG_SPORK) {
+                        continue;
+                    }
                     bool allowWhileInIBD = allowWhileInIBDObjs.count(inv.type);
                     if (allowWhileInIBD || !m_chainman.ActiveChainstate().IsInitialBlockDownload()) {
                         RequestObject(pfrom.GetId(), inv, current_time);
@@ -5463,6 +5468,9 @@ void PeerManagerImpl::ProcessMessage(
     }
 
     if (msg_type == NetMsgType::SPORK) {
+        if (!LegacySporkP2PEnabled()) {
+            return;
+        }
         CSporkMessage spork;
         vRecv >> spork;
 
@@ -5480,6 +5488,9 @@ void PeerManagerImpl::ProcessMessage(
     }
 
     if (msg_type == NetMsgType::GETSPORKS) {
+        if (!LegacySporkP2PEnabled()) {
+            return;
+        }
         // For 'getsporks', active sporks is sent to the requesting peer.
         auto active_sporks = m_sporkman.ActiveSporks();
         for (const auto& pair : active_sporks) {

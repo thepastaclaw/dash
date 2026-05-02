@@ -229,7 +229,9 @@ static RPCHelpMan sporkupdate()
     auto inv{node.sporkman->UpdateSpork(nSporkID, nValue)};
     if (inv.has_value()) {
         PeerManager& peerman = EnsurePeerman(node);
-        peerman.RelayInv(inv.value());
+        if (Params().NetworkIDString() != CBaseChainParams::MAIN) {
+            peerman.RelayInv(inv.value());
+        }
         return "success";
     }
 

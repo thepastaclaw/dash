@@ -207,7 +207,8 @@ void SyncManager::ProcessTick()
 
             // SPORK : ALWAYS ASK FOR SPORKS AS WE SYNC
 
-            if (!m_netfulfilledman.HasFulfilledRequest(pnode->addr, "spork-sync")) {
+            if (Params().NetworkIDString() != CBaseChainParams::MAIN &&
+                !m_netfulfilledman.HasFulfilledRequest(pnode->addr, "spork-sync")) {
                 // always get sporks first, only request once from each peer
                 m_netfulfilledman.AddFulfilledRequest(pnode->addr, "spork-sync");
                 // get current network sporks
