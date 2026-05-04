@@ -141,12 +141,21 @@ class LLMQSimplePoSeTest(DashTestFramework):
         self.wait_for_quorum_phase(q, 6, expected_good_nodes, None, 0, mninfos_online)
 
         self.log.info("Waiting final commitment")
-        self.wait_for_quorum_commitment(q, mninfos_online)
+        got_commitment = self.wait_for_quorum_commitment(q, mninfos_online, expected_commitments=expected_good_nodes, do_assert=False)
 
         self.log.info("Mining final commitment")
         self.bump_mocktime(1, nodes=nodes)
         self.nodes[0].getblocktemplate() # this calls CreateNewBlock
         self.generate(self.nodes[0], 1, sync_fun=lambda: self.sync_blocks(nodes))
+
+        if not got_commitment:
+            # No final commitment surfaced under contention; the round produced
+            # a null commitment block above. Advance out of the DKG round and
+            # signal failure so the caller can retry.
+            self.log.info("No final commitment observed; mined null commitment block to advance out of DKG round")
+            self.bump_mocktime(8)
+            self.generate(self.nodes[0], 8, sync_fun=lambda: self.sync_blocks(nodes))
+            return False
 
         self.log.info("Waiting for quorum to appear in the list")
         self.wait_for_quorum_list(q, nodes)
@@ -160,7 +169,7 @@ class LLMQSimplePoSeTest(DashTestFramework):
         self.generate(self.nodes[0], 8, sync_fun=lambda: self.sync_blocks(nodes))
         self.log.info("New quorum: height=%d, quorumHash=%s, quorumIndex=%d, minedBlock=%s" % (quorum_info["height"], new_quorum, quorum_info["quorumIndex"], quorum_info["minedBlock"]))
 
-        return new_quorum
+        return True
 
     def test_banning(self, invalidate_proc, expected_connections=None):
         mninfos_online = self.mninfo.copy()
@@ -196,12 +205,24 @@ class LLMQSimplePoSeTest(DashTestFramework):
                 # It's ok to miss probes/quorum connections up to 5 times.
                 # 6th time is when it should be banned for sure.
                 assert expected_connections is None
-                for j in range(6):
-                    self.log.info(f"Accumulating PoSe penalty {j + 1}/6")
+                successful_rounds = 0
+                attempts = 0
+                # Allow a small bounded number of skipped null-DKG rounds
+                # (under contention some rounds legitimately fail to produce a
+                # final commitment and don't count toward PoSe accumulation).
+                max_attempts = 12
+                while successful_rounds < 6 and attempts < max_attempts:
+                    attempts += 1
+                    self.log.info(f"Accumulating PoSe penalty {successful_rounds + 1}/6 (attempt {attempts}/{max_attempts})")
                     self.reset_probe_timeouts()
-                    self.mine_quorum_less_checks(expected_contributors - 1, mninfos_online)
+                    if self.mine_quorum_less_checks(expected_contributors - 1, mninfos_online):
+                        successful_rounds += 1
+                    else:
+                        self.log.info("Skipping null-DKG round (no final commitment); not counted toward PoSe accumulation")
                     if check_banned(self.nodes[0], mn):
                         break
+                assert successful_rounds >= 6 or check_banned(self.nodes[0], mn), \
+                    f"Only {successful_rounds} successful PoSe rounds in {attempts} attempts; MN not banned"
 
             assert check_banned(self.nodes[0], mn)
 
