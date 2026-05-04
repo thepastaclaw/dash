@@ -9,6 +9,9 @@ testing.
 """
 
 import os
+import shutil
+import tempfile
+import unittest
 
 from .authproxy import AuthServiceProxy
 
@@ -54,6 +57,11 @@ class AuthServiceProxyWrapper():
         rpc_method = self.auth_service_proxy_instance._service_name
 
         if self.coverage_logfile:
+            # The coverage directory is shared across all test processes and may
+            # be removed (e.g. cleanup of a sibling tmpdir) before this append
+            # runs. Recreate it so coverage logging keeps working instead of
+            # crashing the test with FileNotFoundError.
+            os.makedirs(os.path.dirname(self.coverage_logfile), exist_ok=True)
             with open(self.coverage_logfile, 'a+', encoding='utf8') as f:
                 f.write("%s\n" % rpc_method)
 
@@ -106,7 +114,66 @@ def write_all_rpc_commands(dirname: str, node: AuthServiceProxy) -> bool:
         if line and not line.startswith('='):
             commands.add("%s\n" % line.split()[0])
 
+    # The coverage directory is shared across processes and may have been
+    # removed before this reference file is written. Recreate it so the
+    # write succeeds and the post-run coverage report has the reference it
+    # needs.
+    os.makedirs(dirname, exist_ok=True)
     with open(filename, 'w', encoding='utf8') as f:
         f.writelines(list(commands))
 
     return True
+
+
+class _FakeProxy:
+    """Minimal stand-in for AuthServiceProxy used by the unit tests below."""
+    def __init__(self, service_name="getblockcount", help_text=""):
+        self._service_name = service_name
+        self._help_text = help_text
+
+    def help(self):
+        return self._help_text
+
+
+class CoverageDirectoryRecreationTest(unittest.TestCase):
+    """Regression tests for issue #7273.
+
+    The shared coverage directory can disappear mid-run (e.g. another test
+    process clears its tmpdir). Coverage writes must recreate it instead of
+    crashing with FileNotFoundError.
+    """
+
+    def setUp(self):
+        self.dirname = tempfile.mkdtemp(prefix="coverage_test_")
+        self.addCleanup(shutil.rmtree, self.dirname, ignore_errors=True)
+
+    def test_log_call_recreates_missing_directory(self):
+        logfile = get_filename(self.dirname, n_node=0)
+        wrapper = AuthServiceProxyWrapper(_FakeProxy("getblockcount"),
+                                          rpc_url="http://test",
+                                          coverage_logfile=logfile)
+
+        # Simulate the shared coverage dir vanishing before a logged call.
+        shutil.rmtree(self.dirname)
+        self.assertFalse(os.path.exists(self.dirname))
+
+        wrapper._log_call()
+
+        self.assertTrue(os.path.isfile(logfile))
+        with open(logfile, 'r', encoding='utf8') as f:
+            self.assertEqual(f.read(), "getblockcount\n")
+
+    def test_write_all_rpc_commands_recreates_missing_directory(self):
+        proxy = _FakeProxy(help_text="== Blockchain ==\ngetblockcount\ngetbestblockhash\n")
+
+        # Simulate the shared coverage dir vanishing before the reference write.
+        shutil.rmtree(self.dirname)
+        self.assertFalse(os.path.exists(self.dirname))
+
+        self.assertTrue(write_all_rpc_commands(self.dirname, proxy))
+
+        ref_file = os.path.join(self.dirname, REFERENCE_FILENAME)
+        self.assertTrue(os.path.isfile(ref_file))
+        with open(ref_file, 'r', encoding='utf8') as f:
+            written = set(line.strip() for line in f.readlines())
+        self.assertEqual(written, {"getblockcount", "getbestblockhash"})

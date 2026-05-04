@@ -76,6 +76,7 @@ TEST_FRAMEWORK_MODULES = [
     "crypto.bip324_cipher",
     "blocktools",
     "crypto.chacha20",
+    "coverage",
     "crypto.ellswift",
     "key",
     "messages",
