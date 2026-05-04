@@ -1617,8 +1617,40 @@ class DashTestFramework(BitcoinTestFramework):
         for i in range(0, idx):
             self.connect_nodes(i, idx)
 
+    def get_confirmed_funding_address(self, node: TestNode) -> str:
+        for utxo in node.listunspent(minconf=1):
+            if utxo.get("spendable") and "address" in utxo:
+                return utxo["address"]
+        raise AssertionError("Unable to find a confirmed spendable funding address")
+
     def dynamically_add_masternode(self, evo=False, rnd=None, should_be_rejected=False) -> Optional[MasternodeInfo]:
         mn_idx = len(self.nodes)
+
+        if should_be_rejected and evo:
+            mn = MasternodeInfo(evo=True, legacy=False)
+            mn.generate_addresses(self.nodes[0])
+
+            node_p2p_port = p2p_port(mn_idx)
+            platform_node_id = hash160(b'%d' % rnd).hex() if rnd is not None else hash160(b'%d' % node_p2p_port).hex()
+            addrs_platform_p2p = node_p2p_port + 101
+            addrs_platform_https = node_p2p_port + 102
+            funding_address = self.get_confirmed_funding_address(self.nodes[0])
+
+            # Expected duplicate Platform Node IDs should fail at protx submission without
+            # preparing collateral, mining blocks, or starting a partial EvoNode.
+            mn.register_fund(
+                self.nodes[0],
+                submit=True,
+                addrs_core_p2p=[f'127.0.0.1:{node_p2p_port}'],
+                operator_reward=mn_idx,
+                platform_node_id=platform_node_id,
+                addrs_platform_p2p=addrs_platform_p2p,
+                addrs_platform_https=addrs_platform_https,
+                fundsAddr=funding_address,
+                expected_assert_code=-1,
+                expected_assert_msg="bad-protx-dup-platformnodeid",
+            )
+            return None
 
         protx_success = False
         try:
@@ -1686,14 +1718,29 @@ class DashTestFramework(BitcoinTestFramework):
         return mn
 
     def dynamically_evo_update_service(self, evo_info: MasternodeInfo, rnd=None, should_be_rejected=False):
-        funds_address = self.nodes[0].getnewaddress()
-        operator_reward_address = self.nodes[0].getnewaddress()
-
         # For the sake of the test, generate random nodeid, p2p and http platform values
         r = rnd if rnd is not None else random.randint(21000, 65000)
         platform_node_id = hash160(b'%d' % r).hex()
         addrs_platform_p2p = r + 1
         addrs_platform_https = r + 2
+
+        if should_be_rejected:
+            funding_address = self.get_confirmed_funding_address(self.nodes[0])
+            evo_info.update_service(
+                self.nodes[0],
+                True,
+                f'127.0.0.1:{evo_info.nodePort}',
+                platform_node_id,
+                addrs_platform_p2p,
+                addrs_platform_https,
+                fundsAddr=funding_address,
+                expected_assert_code=-1,
+                expected_assert_msg="bad-protx-dup-platformnodeid",
+            )
+            return
+
+        funds_address = self.nodes[0].getnewaddress()
+        operator_reward_address = self.nodes[0].getnewaddress()
 
         fund_txid = self.nodes[0].sendtoaddress(funds_address, 1)
         self.bump_mocktime(10 * 60 + 1) # to make tx safe to include in block
