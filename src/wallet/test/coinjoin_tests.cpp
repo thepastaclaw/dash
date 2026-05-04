@@ -230,6 +230,35 @@ BOOST_FIXTURE_TEST_CASE(coinjoin_manager_start_stop_tests, CTransactionBuilderTe
     BOOST_CHECK_EQUAL(cj_man.IsMixing(), false);
 }
 
+// Regression test for dash#6859: when an encrypted wallet that has CoinJoin
+// mixing active is fully relocked (Lock(fAllowMixing=false)), the per-wallet
+// CoinJoin client must also stop mixing. A mixing-only relock
+// (Lock(fAllowMixing=true)) must preserve the active mixing state.
+BOOST_FIXTURE_TEST_CASE(coinjoin_lock_stops_mixing_tests, CTransactionBuilderTestSetup)
+{
+    auto& cj_man = *Assert(m_node.cj_walletman->getClient(""));
+
+    // Encrypt the wallet so that Lock()/Unlock() actually take effect.
+    BOOST_REQUIRE(wallet->EncryptWallet("password"));
+    BOOST_REQUIRE(wallet->Unlock("password", /*fForMixingOnly=*/false));
+    BOOST_REQUIRE(!wallet->IsLocked());
+
+    // Start mixing while fully unlocked.
+    BOOST_REQUIRE(cj_man.StartMixing());
+    BOOST_CHECK_EQUAL(cj_man.IsMixing(), true);
+
+    // A mixing-only relock must preserve the active mixing state, otherwise
+    // the user's "unlock for mixing only" flow would immediately stop the
+    // very thing it was unlocked for.
+    BOOST_REQUIRE(wallet->Lock(/*fAllowMixing=*/true));
+    BOOST_CHECK_EQUAL(cj_man.IsMixing(), true);
+
+    // A full relock must stop mixing so the UI and automatic denominating
+    // reflect the locked state instead of looping on "Wallet is locked".
+    BOOST_REQUIRE(wallet->Lock(/*fAllowMixing=*/false));
+    BOOST_CHECK_EQUAL(cj_man.IsMixing(), false);
+}
+
 BOOST_FIXTURE_TEST_CASE(CTransactionBuilderTest, CTransactionBuilderTestSetup)
 {
     // NOTE: Mock wallet version is FEATURE_BASE which means that it uses uncompressed pubkeys

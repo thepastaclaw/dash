@@ -3896,10 +3896,20 @@ bool CWallet::Lock(bool fAllowMixing)
         return false;
 
     if(!fAllowMixing) {
-        LOCK(cs_wallet);
-        if (!vMasterKey.empty()) {
-            memory_cleanse(vMasterKey.data(), vMasterKey.size() * sizeof(decltype(vMasterKey)::value_type));
-            vMasterKey.clear();
+        {
+            LOCK(cs_wallet);
+            if (!vMasterKey.empty()) {
+                memory_cleanse(vMasterKey.data(), vMasterKey.size() * sizeof(decltype(vMasterKey)::value_type));
+                vMasterKey.clear();
+            }
+        }
+        // A full lock must also stop any active CoinJoin mixing so the UI and
+        // automatic denominating reflect the locked state. Otherwise mixing
+        // would remain "on" but every attempt would fail with "Wallet is locked".
+        // Note: GetClient(GetName()) can return nullptr if the wallet is still
+        // being created; skipping stopMixing() is fine in that case.
+        if (std::unique_ptr<interfaces::CoinJoin::Client> coinjoin_client = coinjoin_available() ? coinjoin_loader().GetClient(GetName()) : nullptr) {
+            coinjoin_client->stopMixing();
         }
     }
 
