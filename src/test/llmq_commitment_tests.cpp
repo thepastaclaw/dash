@@ -5,7 +5,9 @@
 #include <test/util/llmq_tests.h>
 #include <test/util/setup_common.h>
 
+#include <llmq/blockprocessor.h>
 #include <llmq/commitment.h>
+#include <llmq/context.h>
 #include <streams.h>
 #include <util/strencodings.h>
 
@@ -285,6 +287,32 @@ BOOST_AUTO_TEST_CASE(build_commitment_hash_test)
                                               GetTestQuorumHash(2));
 
     BOOST_CHECK(hash4 == hash5);
+}
+
+BOOST_FIXTURE_TEST_CASE(mineable_commitment_replacement_clears_stale_hash, TestingSetup)
+{
+    auto& quorum_block_processor = *Assert(m_node.llmq_ctx->quorum_block_processor);
+
+    CFinalCommitment old_commitment = CreateValidCommitment(TEST_PARAMS, GetTestQuorumHash(42));
+    old_commitment.signers = CreateBitVector(TEST_PARAMS.size, {0, 1});
+
+    CFinalCommitment new_commitment = old_commitment;
+    new_commitment.signers = std::vector<bool>(TEST_PARAMS.size, true);
+
+    const uint256 old_hash = ::SerializeHash(old_commitment);
+    const uint256 new_hash = ::SerializeHash(new_commitment);
+
+    BOOST_REQUIRE(old_hash != new_hash);
+    BOOST_REQUIRE(quorum_block_processor.AddMineableCommitment(old_commitment).has_value());
+    BOOST_REQUIRE(quorum_block_processor.AddMineableCommitment(new_commitment).has_value());
+
+    CFinalCommitment fetched_commitment;
+    BOOST_CHECK(!quorum_block_processor.GetMineableCommitmentByHash(old_hash, fetched_commitment));
+    BOOST_CHECK(!quorum_block_processor.HasMineableCommitment(old_hash));
+    BOOST_REQUIRE(quorum_block_processor.GetMineableCommitmentByHash(new_hash, fetched_commitment));
+    BOOST_CHECK(quorum_block_processor.HasMineableCommitment(new_hash));
+    BOOST_CHECK_EQUAL(::SerializeHash(fetched_commitment).ToString(), new_hash.ToString());
+    BOOST_CHECK_EQUAL(fetched_commitment.CountSigners(), new_commitment.CountSigners());
 }
 
 BOOST_AUTO_TEST_SUITE_END()
