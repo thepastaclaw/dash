@@ -88,6 +88,14 @@ class DIP3V19Test(DashTestFramework):
         self.log.info("pubkeyoperator should still be shown using legacy scheme")
         assert_equal(pubkeyoperator_list_before, pubkeyoperator_list_after)
 
+        # Temporarily disable ChainLocks for the DIP3/protx EvoNode mutation checks below.
+        # Rapid block generation while dynamically adding/rejecting EvoNodes races with
+        # ChainLock signing and intermittently destabilizes this section (see dashpay/dash#6702).
+        # ChainLocks are re-enabled before the final DKG/IS/CL stability check.
+        self.log.info("Disabling ChainLocks around DIP3 EvoNode mutation checks")
+        self.nodes[0].sporkupdate("SPORK_19_CHAINLOCKS_ENABLED", 4070908800)
+        self.wait_for_sporks_same()
+
         evo_info_0: MasternodeInfo = self.dynamically_add_masternode(evo=True, rnd=7)
         assert evo_info_0 is not None
 
@@ -113,6 +121,11 @@ class DIP3V19Test(DashTestFramework):
 
         # Avoid including these masternodes in next dkg to improve test stability
         self.move_blocks(self.nodes, 24)
+
+        # Re-enable ChainLocks before the final DKG/IS/CL stability section so it actually exercises CLs.
+        self.log.info("Re-enabling SPORK_19_CHAINLOCKS_ENABLED before final DKG/IS/CL stability check")
+        self.nodes[0].sporkupdate("SPORK_19_CHAINLOCKS_ENABLED", 0)
+        self.wait_for_sporks_same()
 
         self.mine_quorum(llmq_type_name='llmq_test', llmq_type=100)
 
