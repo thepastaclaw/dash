@@ -10,6 +10,7 @@ import copy
 from _decimal import Decimal, ROUND_DOWN
 from enum import Enum
 import argparse
+from io import BytesIO
 import logging
 import os
 import platform
@@ -30,11 +31,13 @@ from test_framework.masternodes import check_banned, check_punished
 from test_framework.blocktools import TIME_GENESIS_BLOCK
 from . import coverage
 from .messages import (
+    CFinalCommitmentPayload,
     hash256,
     msg_isdlock,
     ser_compact_size,
     ser_string,
     tx_from_hex,
+    uint256_to_string,
 )
 from .script import hash160
 from .p2p import NetworkThread
@@ -2116,11 +2119,62 @@ class DashTestFramework(BitcoinTestFramework):
 
         self.wait_until(check_dkg_comitments, timeout=timeout)
 
+    def wait_for_mined_quorum_commitment(self, mining_node, quorum_hash, llmq_type=100, timeout=15):
+        def has_expected_commitment():
+            template = mining_node.getblocktemplate()
+            for tx_info in template.get("transactions", []):
+                tx = tx_from_hex(tx_info["data"])
+                if tx.nType != 6 or tx.vExtraPayload is None:
+                    continue
+                payload = CFinalCommitmentPayload()
+                payload.deserialize(BytesIO(tx.vExtraPayload))
+                commitment = payload.commitment
+                if commitment.llmqType != llmq_type:
+                    continue
+                if uint256_to_string(commitment.quorumHash) != quorum_hash:
+                    continue
+                return True
+            return False
+
+        self.log.info("Waiting for node%d block template to include final commitment: llmq_type=%d quorum_hash=%s",
+                      mining_node.index, llmq_type, quorum_hash)
+        self.wait_until(has_expected_commitment, timeout=timeout)
+
+    def _log_quorum_wait_diagnostics(self, quorum_hash, nodes, llmq_type_name):
+        for node in nodes:
+            try:
+                block_count = node.getblockcount()
+                best_block_hash = node.getbestblockhash()
+            except Exception as e:
+                self.log.warning("node%d state unavailable while waiting for quorum %s: %s", node.index, quorum_hash, e)
+                continue
+
+            try:
+                quorum_list = node.quorum("list")
+            except Exception as e:
+                quorum_list = f"<unavailable: {e}>"
+
+            try:
+                dkgstatus = node.quorum("dkgstatus")
+            except Exception as e:
+                dkgstatus = f"<unavailable: {e}>"
+
+            self.log.warning("node%d final state while waiting for quorum %s: height=%d bestblock=%s %s_quorums=%s dkgstatus=%s",
+                             node.index, quorum_hash, block_count, best_block_hash,
+                             llmq_type_name, quorum_list[llmq_type_name] if isinstance(quorum_list, dict) and llmq_type_name in quorum_list else quorum_list,
+                             dkgstatus)
+
     def wait_for_quorum_list(self, quorum_hash, nodes, timeout=15, llmq_type_name="llmq_test"):
         def wait_func():
             return quorum_hash in self.nodes[0].quorum('list')[llmq_type_name]
-        self.log.info(f"quorums: {self.nodes[0].quorum('list')}")
-        self.wait_until(wait_func, timeout=timeout, sleep=0.05)
+        node_ids = ",".join(f"node{node.index}" for node in nodes)
+        self.log.info("Waiting for quorum %s to appear in %s on %s; node0_quorums=%s",
+                      quorum_hash, llmq_type_name, node_ids, self.nodes[0].quorum('list'))
+        try:
+            self.wait_until(wait_func, timeout=timeout, sleep=0.05)
+        except Exception:
+            self._log_quorum_wait_diagnostics(quorum_hash, nodes, llmq_type_name)
+            raise
 
     def wait_for_quorums_list(self, quorum_hash_0, quorum_hash_1, nodes, llmq_type_name="llmq_test",  timeout=15):
         def wait_func():
@@ -2198,10 +2252,10 @@ class DashTestFramework(BitcoinTestFramework):
 
         self.log.info("Waiting final commitment")
         self.wait_for_quorum_commitment(q, mninfos_online, llmq_type=llmq_type)
+        self.wait_for_mined_quorum_commitment(self.nodes[0], q, llmq_type=llmq_type)
 
         self.log.info("Mining final commitment")
         self.bump_mocktime(1)
-        self.nodes[0].getblocktemplate() # this calls CreateNewBlock
         self.generate(self.nodes[0], 1, sync_fun=lambda: self.sync_blocks(nodes))
 
         self.log.info("Waiting for quorum to appear in the list")
