@@ -622,6 +622,7 @@ void BitcoinGUI::createActions()
         connect(m_migrate_wallet_action, &QAction::triggered, [this] {
             auto activity = new MigrateWalletActivity(m_wallet_controller, this);
             connect(activity, &MigrateWalletActivity::migrated, this, &BitcoinGUI::setCurrentWallet);
+            connect(activity, &MigrateWalletActivity::migrated, rpcConsole, &RPCConsole::setCurrentWallet);
             activity->migrate(walletFrame->currentWalletModel());
         });
         connect(m_mask_values_action, &QAction::toggled, this, &BitcoinGUI::setPrivacy);

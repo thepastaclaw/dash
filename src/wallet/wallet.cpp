@@ -4796,25 +4796,32 @@ util::Result<MigrationResult> MigrateLegacyToDescriptor(const std::string& walle
         success = DoMigration(*local_wallet, context, error, res);
     }
 
+    std::vector<fs::path> wallet_dirs;
+    wallet_dirs.push_back(fs::PathFromString(local_wallet->GetDatabase().Filename()).parent_path());
+
     if (success) {
         // Migration successful, unload the wallet locally, then reload it.
         assert(local_wallet.use_count() == 1);
         local_wallet.reset();
         res.wallet = LoadWallet(context, wallet_name, /*load_on_start=*/std::nullopt, options, status, error, warnings);
-        res.wallet_name = wallet_name;
-    } else {
+        if (res.wallet) {
+            res.wallet_name = wallet_name;
+            return res;
+        }
+        success = false;
+    }
+
+    if (!success) {
         // Migration failed, cleanup
         // Copy the backup to the actual wallet dir
         fs::path temp_backup_location = fsbridge::AbsPathJoin(GetWalletDir(), backup_filename);
         fs::copy_file(backup_path, temp_backup_location, fs::copy_options::none);
 
-        // Remember this wallet's walletdir to remove after unloading
-        std::vector<fs::path> wallet_dirs;
-        wallet_dirs.push_back(fs::PathFromString(local_wallet->GetDatabase().Filename()).parent_path());
-
         // Unload the wallet locally
-        assert(local_wallet.use_count() == 1);
-        local_wallet.reset();
+        if (local_wallet) {
+            assert(local_wallet.use_count() == 1);
+            local_wallet.reset();
+        }
 
         // Make list of wallets to cleanup
         std::vector<std::shared_ptr<CWallet>> created_wallets;
@@ -4854,6 +4861,6 @@ util::Result<MigrationResult> MigrateLegacyToDescriptor(const std::string& walle
 
         return util::Error{error};
     }
-    return res;
+    return util::Error{error};
 }
 } // namespace wallet

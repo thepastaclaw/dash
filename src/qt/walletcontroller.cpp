@@ -26,6 +26,7 @@
 #include <chrono>
 
 #include <QApplication>
+#include <QDialog>
 #include <QMessageBox>
 #include <QMetaObject>
 #include <QMutexLocker>
@@ -581,7 +582,7 @@ void MigrateWalletActivity::migrate(WalletModel* wallet_model)
     if (enc_status == WalletModel::EncryptionStatus::Locked || enc_status == WalletModel::EncryptionStatus::Unlocked) {
         AskPassphraseDialog dlg(AskPassphraseDialog::Unlock, m_parent_widget, &passphrase);
         dlg.setModel(wallet_model);
-        dlg.exec();
+        if (dlg.exec() != QDialog::Accepted) return;
     }
 
     // GUI needs to remove the wallet so that it can actually be unloaded by migration
