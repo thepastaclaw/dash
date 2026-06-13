@@ -87,11 +87,27 @@ UniValue CDeterministicMNStateDiff::ToJson(MnType nType) const
         if (fields & Field_platformNodeID) {
             obj.pushKV("platformNodeID", state.platformNodeID.ToString());
         }
-        if (fields & Field_platformP2PPort) {
-            obj.pushKV("platformP2PPort", state.platformP2PPort);
-        }
-        if (fields & Field_platformHTTPPort) {
-            obj.pushKV("platformHTTPPort", state.platformHTTPPort);
+        // On v23.x the deprecated `service` fields stay ungated, matching the rest of this branch:
+        // they are deprecated but not yet enforced through `-deprecatedrpc=service`. Keep the
+        // conditional so this block stays aligned with develop, where the gate does apply.
+        if (true) {
+            // platformP2PPort/platformHTTPPort are deprecated scalar duplicates of netInfo's
+            // Platform entries. From ExtAddr onwards the scalar fields are unused (always 0), so
+            // when the diff carries an ExtAddr netInfo report the live port from it to stay
+            // consistent with the "addresses" output below.
+            const bool has_ext_netinfo = (fields & Field_netInfo) && state.netInfo->CanStorePlatform();
+            if (fields & Field_platformP2PPort) {
+                obj.pushKV("platformP2PPort",
+                           has_ext_netinfo && state.netInfo->HasEntries(NetInfoPurpose::PLATFORM_P2P)
+                               ? state.netInfo->GetEntries(NetInfoPurpose::PLATFORM_P2P)[0].GetPort()
+                               : state.platformP2PPort);
+            }
+            if (fields & Field_platformHTTPPort) {
+                obj.pushKV("platformHTTPPort",
+                           has_ext_netinfo && state.netInfo->HasEntries(NetInfoPurpose::PLATFORM_HTTPS)
+                               ? state.netInfo->GetEntries(NetInfoPurpose::PLATFORM_HTTPS)[0].GetPort()
+                               : state.platformHTTPPort);
+            }
         }
     }
     {
