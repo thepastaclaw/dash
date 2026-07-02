@@ -70,7 +70,7 @@ static std::unique_ptr<WalletDatabase> DuplicateMockDatabase(WalletDatabase& dat
         bool complete;
         batch->ReadAtCursor(key, value, complete);
         if (complete) break;
-        new_batch->Write(key, value);
+        new_batch->Write(MakeUCharSpan(key), MakeUCharSpan(value));
     }
 
     return new_database;
