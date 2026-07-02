@@ -124,7 +124,7 @@ int main(int argc, char* argv[])
     std::unique_ptr<LLMQContext> llmq_ctx;
     std::unique_ptr<CChainstateHelper> chain_helper;
     auto rv = node::LoadChainstate(/*fReset=*/false,
-                                   std::ref(chainman),
+                                   chainman,
                                    metaman,
                                    sporkman,
                                    chainlocks,
@@ -153,7 +153,7 @@ int main(int argc, char* argv[])
         std::cerr << "Failed to load Chain state from your datadir." << std::endl;
         goto epilogue;
     } else {
-        auto maybe_verify_error = node::VerifyLoadedChainstate(std::ref(chainman),
+        auto maybe_verify_error = node::VerifyLoadedChainstate(chainman,
                                                                *evodb,
                                                                false,
                                                                false,
