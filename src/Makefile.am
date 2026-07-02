@@ -1166,6 +1166,8 @@ dash_util_LDADD += $(BOOST_LIBS)
 dash_chainstate_SOURCES = \
   bitcoin-chainstate.cpp \
   index/addressindex.cpp \
+  index/addressindex_util.cpp \
+  index/spentindex.cpp \
   arith_uint256.cpp \
   base58.cpp \
   batchedlogger.cpp \
@@ -1209,6 +1211,7 @@ dash_chainstate_SOURCES = \
   governance/common.cpp \
   governance/governance.cpp \
   governance/object.cpp \
+  governance/superblock.cpp \
   governance/vote.cpp \
   governance/votedb.cpp \
   gsl/assert.cpp \
