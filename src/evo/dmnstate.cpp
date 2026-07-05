@@ -5,6 +5,7 @@
 #include <evo/dmnstate.h>
 
 #include <evo/netinfo.h>
+#include <key_io.h>
 #include <script/standard.h>
 #include <univalue.h>
 

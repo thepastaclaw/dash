@@ -11,6 +11,7 @@
 
 #include <clientversion.h>
 #include <consensus/params.h>
+#include <consensus/validation.h>
 #include <crypto/common.h>
 #include <saltedhasher.h>
 #include <sync.h>

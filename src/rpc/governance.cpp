@@ -15,6 +15,7 @@
 #include <chainparams.h>
 #include <core_io.h>
 #include <index/txindex.h>
+#include <key_io.h>
 #include <node/context.h>
 #include <rpc/server.h>
 #include <rpc/server_util.h>

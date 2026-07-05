@@ -6,24 +6,19 @@
 #define BITCOIN_EVO_PROVIDERTX_H
 
 #include <bls/bls.h>
+#include <consensus/validation.h>
 #include <evo/dmn_types.h>
 #include <evo/netinfo.h>
 #include <evo/specialtx.h>
 #include <evo/types.h>
 #include <primitives/transaction.h>
-#include <util/std23.h>
-
-#include <consensus/validation.h>
-#include <key_io.h>
-#include <netaddress.h>
 #include <pubkey.h>
-
-#include <gsl/pointers.h>
-#include <univalue.h>
+#include <script/standard.h>
 
 #include <vector>
 
 class TxValidationState;
+class UniValue;
 struct RPCResult;
 
 class MasternodePayoutShare

@@ -7,6 +7,7 @@
 #include <evo/deterministicmns.h>
 #include <evo/providertx.h>
 #include <index/txindex.h>
+#include <key_io.h>
 #include <rpc/protocol.h>
 #include <rpc/request.h>
 

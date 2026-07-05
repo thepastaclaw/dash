@@ -3,16 +3,16 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <evo/providertx.h>
-
 #include <evo/dmn_types.h>
-#include <util/std23.h>
 
 #include <chainparams.h>
 #include <consensus/validation.h>
 #include <deploymentstatus.h>
 #include <hash.h>
+#include <key_io.h>
 #include <script/standard.h>
 #include <tinyformat.h>
+#include <util/std23.h>
 
 #include <set>
 

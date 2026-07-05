@@ -14,6 +14,7 @@
 #include <evo/providertx.h>
 #include <evo/simplifiedmns.h>
 #include <evo/specialtx.h>
+#include <key_io.h>
 #include <masternode/meta.h>
 #include <node/blockstorage.h>
 #include <script/standard.h>

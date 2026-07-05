@@ -12,6 +12,7 @@
 #include <evo/simplifiedmns.h>
 #include <evo/specialtx.h>
 #include <evo/specialtxman.h>
+#include <key_io.h>
 #include <llmq/context.h>
 #include <messagesigner.h>
 #include <node/transaction.h>

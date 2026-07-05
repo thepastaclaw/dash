@@ -15,6 +15,7 @@
 #include <evo/specialtx.h>
 #include <evo/specialtxman.h>
 #include <index/txindex.h>
+#include <key_io.h>
 #include <llmq/context.h>
 #include <masternode/meta.h>
 #include <node/context.h>

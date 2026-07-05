@@ -11,6 +11,7 @@
 #include <evo/providertx.h>
 #include <evo/simplifiedmns.h>
 #include <evo/smldiff.h>
+#include <key_io.h>
 #include <llmq/commitment.h>
 #include <rpc/evo_util.h>
 #include <util/std23.h>

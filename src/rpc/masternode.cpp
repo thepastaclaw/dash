@@ -14,6 +14,7 @@
 #include <chainparams.h>
 #include <core_io.h>
 #include <index/txindex.h>
+#include <key_io.h>
 #include <net.h>
 #include <netbase.h>
 #include <node/blockstorage.h>
