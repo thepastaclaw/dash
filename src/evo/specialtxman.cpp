@@ -970,6 +970,15 @@ static bool CheckHashSig(const ProTx& proTx, const CBLSPublicKey& pubKey, TxVali
 }
 
 template <typename ProTx>
+static bool CheckInputsHash(const CTransaction& tx, const ProTx& proTx, TxValidationState& state)
+{
+    if (uint256 inputsHash = CalcTxInputsHash(tx); inputsHash != proTx.inputsHash) {
+        return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-protx-inputs-hash");
+    }
+    return true;
+}
+
+template <typename ProTx>
 std::optional<ProTx> GetValidatedPayload(const CTransaction& tx, gsl::not_null<const CBlockIndex*> pindexPrev,
                                          const ChainstateManager& chainman, TxValidationState& state)
 {

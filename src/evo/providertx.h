@@ -6,7 +6,6 @@
 #define BITCOIN_EVO_PROVIDERTX_H
 
 #include <bls/bls.h>
-#include <consensus/validation.h>
 #include <evo/dmn_types.h>
 #include <evo/netinfo.h>
 #include <evo/specialtx.h>
@@ -323,14 +322,5 @@ public:
      */
     bool IsTriviallyValid(TxValidationState& state) const;
 };
-
-template <typename ProTx>
-static bool CheckInputsHash(const CTransaction& tx, const ProTx& proTx, TxValidationState& state)
-{
-    if (uint256 inputsHash = CalcTxInputsHash(tx); inputsHash != proTx.inputsHash) {
-        return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-protx-inputs-hash");
-    }
-    return true;
-}
 
 #endif // BITCOIN_EVO_PROVIDERTX_H
