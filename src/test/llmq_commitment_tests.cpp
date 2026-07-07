@@ -215,6 +215,35 @@ BOOST_AUTO_TEST_CASE(commitment_serialization_test)
     BOOST_CHECK_EQUAL(commitment.IsNull(), deserialized.IsNull());
 }
 
+BOOST_AUTO_TEST_CASE(commitment_rejects_oversized_bitsets_before_materializing)
+{
+    {
+        CDataStream stream{SER_NETWORK, PROTOCOL_VERSION};
+        stream << CFinalCommitment::LEGACY_BLS_NON_INDEXED_QUORUM_VERSION;
+        stream << TEST_PARAMS.type;
+        stream << GetTestQuorumHash(1);
+        WriteCompactSize(stream, Consensus::MAX_QUORUM_SIZE + 1);
+
+        CFinalCommitment commitment;
+        BOOST_CHECK_THROW(stream >> commitment, std::ios_base::failure);
+        BOOST_CHECK(commitment.signers.empty());
+    }
+
+    {
+        CDataStream stream{SER_NETWORK, PROTOCOL_VERSION};
+        stream << CFinalCommitment::LEGACY_BLS_NON_INDEXED_QUORUM_VERSION;
+        stream << TEST_PARAMS.type;
+        stream << GetTestQuorumHash(1);
+        const std::vector<bool> signers(TEST_PARAMS.size, false);
+        stream << DYNBITSET(signers);
+        WriteCompactSize(stream, Consensus::MAX_QUORUM_SIZE + 1);
+
+        CFinalCommitment commitment;
+        BOOST_CHECK_THROW(stream >> commitment, std::ios_base::failure);
+        BOOST_CHECK(commitment.validMembers.empty());
+    }
+}
+
 BOOST_AUTO_TEST_CASE(commitment_version_test)
 {
     // Test version calculation (first param is rotation enabled, second is basic scheme active)

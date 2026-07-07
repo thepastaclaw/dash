@@ -6,6 +6,7 @@
 #define BITCOIN_LLMQ_PARAMS_H
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <string_view>
 
@@ -123,6 +124,9 @@ public:
     [[nodiscard]] constexpr int max_store_depth() const { return max_cycles(keepOldKeys) * dkgInterval; }
     [[nodiscard]] constexpr bool is_single_member() const { return size == 1; }
 };
+
+// 400 is the largest deployed quorum size and the maximum member count handled by P2P quorum messages.
+static constexpr size_t MAX_QUORUM_SIZE{400};
 
 //static_assert(std::is_trivial_v<Consensus::LLMQParams>, "LLMQParams is not a trivial type");
 static_assert(std::is_trivially_copyable_v<Consensus::LLMQParams>, "LLMQParams is not trivially copyable");

@@ -32,6 +32,15 @@ CFinalCommitment::CFinalCommitment(const Consensus::LLMQParams& params, const ui
 {
 }
 
+size_t CFinalCommitment::GetMaxCommitmentBitsetSize(const Consensus::LLMQType llmq_type)
+{
+    const auto& llmq_params_opt = Params().GetLLMQ(llmq_type);
+    if (!llmq_params_opt.has_value() || llmq_params_opt->size < 0) {
+        return Consensus::MAX_QUORUM_SIZE;
+    }
+    return static_cast<size_t>(llmq_params_opt->size);
+}
+
 bool CFinalCommitment::VerifySignatureAsync(const llmq::UtilParameters& util_params,
                                             CCheckQueueControl<utils::BlsCheck>* queue_control) const
 {

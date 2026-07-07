@@ -12,12 +12,14 @@
 #include <util/std23.h>
 
 #include <primitives/transaction.h>
+#include <serialize.h>
 #include <util/strencodings.h>
 
 #include <gsl/pointers.h>
 #include <univalue.h>
 
 #include <algorithm>
+#include <ios>
 #include <limits>
 #include <memory>
 #include <string>
@@ -92,26 +94,38 @@ public:
 
 public:
 
-    SERIALIZE_METHODS(CFinalCommitment, obj)
+    template <typename Stream>
+    void Serialize(Stream& s) const
     {
-        READWRITE(
-                obj.nVersion,
-                obj.llmqType,
-                obj.quorumHash
-        );
-        if (obj.nVersion == LEGACY_BLS_INDEXED_QUORUM_VERSION || obj.nVersion == BASIC_BLS_INDEXED_QUORUM_VERSION) {
-            READWRITE(
-                    obj.quorumIndex
-            );
+        s << nVersion << llmqType << quorumHash;
+        if (HasQuorumIndex()) {
+            s << quorumIndex;
         }
-        READWRITE(
-                DYNBITSET(obj.signers),
-                DYNBITSET(obj.validMembers),
-                CBLSPublicKeyVersionWrapper(const_cast<CBLSPublicKey&>(obj.quorumPublicKey), (obj.nVersion == LEGACY_BLS_NON_INDEXED_QUORUM_VERSION || obj.nVersion == LEGACY_BLS_INDEXED_QUORUM_VERSION)),
-                obj.quorumVvecHash,
-                CBLSSignatureVersionWrapper(const_cast<CBLSSignature&>(obj.quorumSig), (obj.nVersion == LEGACY_BLS_NON_INDEXED_QUORUM_VERSION || obj.nVersion == LEGACY_BLS_INDEXED_QUORUM_VERSION)),
-                CBLSSignatureVersionWrapper(const_cast<CBLSSignature&>(obj.membersSig), (obj.nVersion == LEGACY_BLS_NON_INDEXED_QUORUM_VERSION || obj.nVersion == LEGACY_BLS_INDEXED_QUORUM_VERSION))
-        );
+        s << DYNBITSET(signers)
+          << DYNBITSET(validMembers)
+          << CBLSPublicKeyVersionWrapper(const_cast<CBLSPublicKey&>(quorumPublicKey), UsesLegacyBLSScheme())
+          << quorumVvecHash
+          << CBLSSignatureVersionWrapper(const_cast<CBLSSignature&>(quorumSig), UsesLegacyBLSScheme())
+          << CBLSSignatureVersionWrapper(const_cast<CBLSSignature&>(membersSig), UsesLegacyBLSScheme());
+    }
+
+    template <typename Stream>
+    void Unserialize(Stream& s)
+    {
+        s >> nVersion >> llmqType >> quorumHash;
+        if (HasQuorumIndex()) {
+            s >> quorumIndex;
+        } else {
+            quorumIndex = 0;
+        }
+
+        const size_t max_bitset_size{GetMaxCommitmentBitsetSize(llmqType)};
+        ReadLimitedDynBitSet(s, signers, max_bitset_size);
+        ReadLimitedDynBitSet(s, validMembers, max_bitset_size);
+        s >> CBLSPublicKeyVersionWrapper(quorumPublicKey, UsesLegacyBLSScheme())
+          >> quorumVvecHash
+          >> CBLSSignatureVersionWrapper(quorumSig, UsesLegacyBLSScheme())
+          >> CBLSSignatureVersionWrapper(membersSig, UsesLegacyBLSScheme());
     }
 
 public:
@@ -134,6 +148,28 @@ public:
     [[nodiscard]] UniValue ToJson() const;
 
 private:
+    [[nodiscard]] bool HasQuorumIndex() const
+    {
+        return nVersion == LEGACY_BLS_INDEXED_QUORUM_VERSION || nVersion == BASIC_BLS_INDEXED_QUORUM_VERSION;
+    }
+
+    [[nodiscard]] bool UsesLegacyBLSScheme() const
+    {
+        return nVersion == LEGACY_BLS_NON_INDEXED_QUORUM_VERSION || nVersion == LEGACY_BLS_INDEXED_QUORUM_VERSION;
+    }
+
+    static size_t GetMaxCommitmentBitsetSize(Consensus::LLMQType llmq_type);
+
+    template <typename Stream>
+    static void ReadLimitedDynBitSet(Stream& s, std::vector<bool>& vec, const size_t max_size)
+    {
+        const size_t size{ReadCompactSize(s)};
+        if (size > max_size) {
+            throw std::ios_base::failure("CFinalCommitment dynamic bitset too large");
+        }
+        ReadFixedBitSet(s, vec, size);
+    }
+
     static std::string BitsVectorToHexStr(const std::vector<bool>& vBits)
     {
         std::vector<uint8_t> vBytes((vBits.size() + 7) / 8);
