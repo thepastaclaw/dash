@@ -3,6 +3,7 @@
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+import copy
 import time
 
 from test_framework.messages import CSigSharesInv, msg_qgetdata, msg_qsigsinv, msg_qwatch
@@ -222,7 +223,7 @@ class QuorumDataMessagesTest(DashTestFramework):
             force_request_expire()
             assert mn1.get_node(self).quorum("getdata", id_p2p_mn1, 100, quorum_hash, 0x03, mn1.proTxHash)
             p2p_mn1.wait_for_qmessage("qgetdata")
-            qdata_invalid_request = qdata_valid
+            qdata_invalid_request = copy.deepcopy(qdata_valid)
             qdata_invalid_request.data_mask = 2
             p2p_mn1.send_message(qdata_invalid_request)
             wait_for_banscore(mn1.get_node(self), id_p2p_mn1, 30)
@@ -230,7 +231,7 @@ class QuorumDataMessagesTest(DashTestFramework):
             force_request_expire()
             assert mn1.get_node(self).quorum("getdata", id_p2p_mn1, 100, quorum_hash, 0x03, mn1.proTxHash)
             p2p_mn1.wait_for_qmessage("qgetdata")
-            qdata_invalid_vvec = qdata_valid
+            qdata_invalid_vvec = copy.deepcopy(qdata_valid)
             qdata_invalid_vvec.quorum_vvec.pop()
             p2p_mn1.send_message(qdata_invalid_vvec)
             wait_for_banscore(mn1.get_node(self), id_p2p_mn1, 40)
@@ -238,10 +239,18 @@ class QuorumDataMessagesTest(DashTestFramework):
             force_request_expire()
             assert mn1.get_node(self).quorum("getdata", id_p2p_mn1, 100, quorum_hash, 0x03, mn1.proTxHash)
             p2p_mn1.wait_for_qmessage("qgetdata")
-            qdata_invalid_contribution = qdata_valid
+            qdata_invalid_contribution = copy.deepcopy(qdata_valid)
             qdata_invalid_contribution.enc_contributions.pop()
             p2p_mn1.send_message(qdata_invalid_contribution)
             wait_for_banscore(mn1.get_node(self), id_p2p_mn1, 50)
+            # - Oversized contributions
+            force_request_expire()
+            assert mn1.get_node(self).quorum("getdata", id_p2p_mn1, 100, quorum_hash, 0x03, mn1.proTxHash)
+            p2p_mn1.wait_for_qmessage("qgetdata")
+            qdata_oversized_contribution = copy.deepcopy(qdata_valid)
+            qdata_oversized_contribution.enc_contributions.append(qdata_oversized_contribution.enc_contributions[0])
+            p2p_mn1.send_message(qdata_oversized_contribution)
+            wait_for_banscore(mn1.get_node(self), id_p2p_mn1, 60)
             mn1.get_node(self).disconnect_p2ps()
             mn2.get_node(self).disconnect_p2ps()
 

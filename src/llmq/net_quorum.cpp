@@ -27,6 +27,22 @@
 #include <ranges>
 
 namespace llmq {
+namespace {
+template <typename T>
+bool ReadVectorWithExactSize(CDataStream& stream, std::vector<T>& ret, const size_t expected_size)
+{
+    const size_t size{ReadCompactSize(stream)};
+    if (size != expected_size) return false;
+
+    ret.clear();
+    ret.reserve(size);
+    while (ret.size() < size) {
+        ret.emplace_back();
+        stream >> ret.back();
+    }
+    return true;
+}
+} // namespace
 
 NetQuorum::NetQuorum(PeerManagerInternal* peer_manager, CBLSWorker& bls_worker,
                      CConnman& connman, CDeterministicMNManager& dmnman, CQuorumManager& qman,
@@ -204,7 +220,10 @@ void NetQuorum::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataS
         // Check if request has QUORUM_VERIFICATION_VECTOR data
         if (request.GetDataMask() & CQuorumDataRequest::QUORUM_VERIFICATION_VECTOR) {
             std::vector<CBLSPublicKey> verificationVector;
-            vRecv >> verificationVector;
+            if (!ReadVectorWithExactSize(vRecv, verificationVector, size_t(pQuorum->params.threshold))) {
+                m_peer_manager->PeerMisbehaving(pfrom.GetId(), 10, "invalid quorum verification vector size");
+                return;
+            }
 
             if (pQuorum->SetVerificationVector(verificationVector)) {
                 m_qman.QueueQuorumForWarming(pQuorum);
@@ -279,7 +298,11 @@ bool NetQuorum::ProcessContribQDATA(CNode& pfrom, CDataStream& vRecv,
     }
 
     std::vector<CBLSIESEncryptedObject<CBLSSecretKey>> vecEncrypted;
-    vRecv >> vecEncrypted;
+    const size_t expected_contributions{static_cast<size_t>(std::ranges::count(quorum.qc->validMembers, true))};
+    if (!ReadVectorWithExactSize(vRecv, vecEncrypted, expected_contributions)) {
+        m_peer_manager->PeerMisbehaving(pfrom.GetId(), 10, "invalid encrypted contribution vector size");
+        return false;
+    }
 
     std::vector<CBLSSecretKey> vecSecretKeys;
     vecSecretKeys.resize(vecEncrypted.size());
