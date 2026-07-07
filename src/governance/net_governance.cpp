@@ -108,6 +108,15 @@ void NetGovernance::ProcessMessage(CNode& peer, const std::string& msg_type, CDa
             }
         } else {
             // Sync votes for a specific governance object
+            const std::string vote_sync_request{strprintf("%s-votes-%s", NetMsgType::MNGOVERNANCESYNC, nProp.ToString())};
+            if (m_netfulfilledman.HasFulfilledRequest(peer.addr, vote_sync_request)) {
+                LogPrint(BCLog::GOBJECT, "MNGOVERNANCESYNC -- peer already asked me for votes for %s\n",
+                         nProp.ToString());
+                m_peer_manager->PeerMisbehaving(peer.GetId(), 20);
+                return;
+            }
+            m_netfulfilledman.AddFulfilledRequest(peer.addr, vote_sync_request);
+
             auto invs = m_gov_manager.GetSyncableVoteInvs(nProp, filter);
             LogPrint(BCLog::GOBJECT, "MNGOVERNANCESYNC -- syncing %d votes for %s to peer=%d\n", invs.size(),
                      nProp.ToString(), peer.GetId());

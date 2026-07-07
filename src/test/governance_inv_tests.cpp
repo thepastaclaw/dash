@@ -2,6 +2,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <common/bloom.h>
 #include <governance/governance.h>
 #include <governance/net_governance.h>
 #include <masternode/meta.h>
@@ -214,6 +215,43 @@ BOOST_AUTO_TEST_CASE(net_governance_schedule_drives_check_and_remove)
     worker.join();
 
     BOOST_CHECK_EQUAL(m_node.govman->RequestedHashCacheSizeForTesting(), 0U);
+}
+
+BOOST_AUTO_TEST_CASE(per_object_vote_sync_is_fulfilled_request_limited)
+{
+    LOCK(NetEventsInterface::g_msgproc_mutex);
+
+    in_addr peer_in_addr{};
+    peer_in_addr.s_addr = htonl(0x01020305);
+    CNode peer{/*id=*/1,
+               /*sock=*/nullptr,
+               /*addrIn=*/CAddress{CService{peer_in_addr, 8333}, NODE_NETWORK},
+               /*nKeyedNetGroupIn=*/0,
+               /*nLocalHostNonceIn=*/0,
+               /*addrBindIn=*/CAddress{},
+               /*addrNameIn=*/std::string{},
+               /*conn_type_in=*/ConnectionType::INBOUND,
+               /*inbound_onion=*/false};
+    peer.nVersion = PROTOCOL_VERSION;
+    peer.SetCommonVersion(PROTOCOL_VERSION);
+    m_node.peerman->InitializeNode(peer, NODE_NETWORK);
+    peer.fSuccessfullyConnected = true;
+
+    const uint256 object_hash{uint256S("08")};
+    const std::string vote_sync_request{strprintf("%s-votes-%s", NetMsgType::MNGOVERNANCESYNC,
+                                                  object_hash.ToString())};
+    BOOST_CHECK(!m_node.netfulfilledman->HasFulfilledRequest(peer.addr, vote_sync_request));
+
+    CDataStream stream{SER_NETWORK, PROTOCOL_VERSION};
+    stream << object_hash << CBloomFilter{};
+
+    NetGovernance net_gov(m_node.peerman.get(), *m_node.govman, *m_node.mn_sync,
+                          *m_node.netfulfilledman, *m_node.connman);
+    net_gov.ProcessMessage(peer, NetMsgType::MNGOVERNANCESYNC, stream);
+
+    BOOST_CHECK(m_node.netfulfilledman->HasFulfilledRequest(peer.addr, vote_sync_request));
+
+    m_node.peerman->FinalizeNode(peer);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
