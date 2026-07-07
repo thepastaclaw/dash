@@ -2,6 +2,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <evo/chainhelper.h>
 #include <governance/governance.h>
 #include <governance/net_governance.h>
 #include <masternode/meta.h>
@@ -42,11 +43,17 @@ struct GovernanceInvSetup : public TestingSetup {
         BOOST_REQUIRE(m_node.mn_metaman);
         BOOST_REQUIRE(m_node.mn_metaman->LoadCache(/*load_cache=*/false));
 
-        BOOST_REQUIRE(m_node.govman);
         // Match runtime preconditions: NetGovernance::AlreadyHave claims we
         // already have the inv when governance isn't loaded (e.g.
         // -disablegovernance), so ConfirmInventoryRequest would never run.
-        BOOST_REQUIRE(m_node.govman->LoadCache(/*load_cache=*/false));
+        BOOST_REQUIRE(m_node.chainman);
+        BOOST_REQUIRE(m_node.chain_helper);
+        BOOST_REQUIRE(m_node.chain_helper->superblocks);
+        BOOST_REQUIRE(m_node.dmnman);
+        auto govman{std::make_unique<CGovernanceManager>(
+            *m_node.mn_metaman, *m_node.chainman, *m_node.chain_helper->superblocks,
+            *m_node.dmnman, *m_node.mn_sync)};
+        BOOST_REQUIRE(govman->LoadCache(/*load_cache=*/false));
 
         BOOST_REQUIRE(m_node.netfulfilledman);
         // Loaded here for the later test that advances GOVERNANCE -> FINISHED;
@@ -63,11 +70,21 @@ struct GovernanceInvSetup : public TestingSetup {
         // CGovernanceManager::ConfirmInventoryRequest; the startup registration
         // itself stays outside this unit test.
         m_node.peerman->AddExtraHandler(std::make_unique<NetGovernance>(
-            m_node.peerman.get(), *m_node.govman, *m_node.mn_sync,
+            m_node.peerman.get(), *govman, *m_node.mn_sync,
             *m_node.netfulfilledman, *m_node.connman));
+        m_node.govman = std::move(govman);
 
         // Anchor the mocked clock so SetMockTime advances are deterministic.
         SetMockTime(1'700'000'000s);
+    }
+
+    ~GovernanceInvSetup()
+    {
+        // The extra NetGovernance handler references govman, and govman
+        // references TestingSetup-owned Dash managers. Tear them down in the
+        // same relative order as init.cpp shutdown.
+        m_node.peerman.reset();
+        m_node.govman.reset();
     }
 };
 
