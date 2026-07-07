@@ -154,7 +154,21 @@ public:
 public:
     SERIALIZE_METHODS(CBatchedSigShares, obj)
     {
-        READWRITE(VARINT(obj.sessionId), obj.sigShares);
+        READWRITE(VARINT(obj.sessionId));
+        if (ser_action.ForRead()) {
+            const size_t sig_shares_size{ReadCompactSize(s)};
+            if (sig_shares_size > MAX_MSGS_TOTAL_BATCHED_SIGS) {
+                throw std::ios_base::failure("CBatchedSigShares::sigShares size too large");
+            }
+            obj.sigShares.clear();
+            obj.sigShares.reserve(sig_shares_size);
+            while (obj.sigShares.size() < sig_shares_size) {
+                obj.sigShares.emplace_back();
+                READWRITE(obj.sigShares.back());
+            }
+        } else {
+            READWRITE(obj.sigShares);
+        }
     }
 
     [[nodiscard]] std::string ToInvString() const;
