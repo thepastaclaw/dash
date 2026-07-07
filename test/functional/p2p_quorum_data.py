@@ -370,6 +370,15 @@ class QuorumDataMessagesTest(DashTestFramework):
             p2p_mn3_1.send_message(msg_qwatch())
             p2p_mn3_2.send_message(msg_qwatch())
 
+            # Invalid QGETDATA requests should not populate the retained
+            # request-limit map, even from qwatch connections. Repeating the
+            # same bogus request used to consume the shared qwatch slot and
+            # bump banscore on the second try.
+            qgetdata_invalid_block = msg_qgetdata(protx_hash_int, 100, 0x01, protx_hash_int)
+            p2p_mn3_1.test_qgetdata(qgetdata_invalid_block, QUORUM_BLOCK_NOT_FOUND)
+            p2p_mn3_1.test_qgetdata(qgetdata_invalid_block, QUORUM_BLOCK_NOT_FOUND)
+            wait_for_banscore(mn3.get_node(self), id_p2p_mn3_1, 0)
+
             # Now send alternating and make sure they share the same request limit
             p2p_mn3_1.test_qgetdata(qgetdata_all, 0, self.llmq_threshold, self.llmq_size)
             wait_for_banscore(mn3.get_node(self), id_p2p_mn3_1, 0)

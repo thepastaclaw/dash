@@ -104,11 +104,8 @@ void NetQuorum::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataS
             return misbehave;
         };
 
-        const CQuorumDataRequestKey key(pfrom.GetVerifiedProRegTxHash(), false, request.GetQuorumHash(), request.GetLLMQType());
-        const bool request_limit_exceeded = !m_qman.RegisterDataRequest(key, request, /*add_expiry_bias=*/false);
-
         if (!Params().GetLLMQ(request.GetLLMQType()).has_value()) {
-            if (sendQDATA(CQuorumDataRequest::Errors::QUORUM_TYPE_INVALID, request_limit_exceeded)) {
+            if (sendQDATA(CQuorumDataRequest::Errors::QUORUM_TYPE_INVALID, /*request_limit_exceeded=*/false)) {
                 m_peer_manager->PeerMisbehaving(pfrom.GetId(), 25, "request limit exceeded");
             }
             return;
@@ -116,7 +113,7 @@ void NetQuorum::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataS
 
         const CBlockIndex* pQuorumBaseBlockIndex = WITH_LOCK(::cs_main, return m_chainman.m_blockman.LookupBlockIndex(request.GetQuorumHash()));
         if (pQuorumBaseBlockIndex == nullptr) {
-            if (sendQDATA(CQuorumDataRequest::Errors::QUORUM_BLOCK_NOT_FOUND, request_limit_exceeded)) {
+            if (sendQDATA(CQuorumDataRequest::Errors::QUORUM_BLOCK_NOT_FOUND, /*request_limit_exceeded=*/false)) {
                 m_peer_manager->PeerMisbehaving(pfrom.GetId(), 25, "request limit exceeded");
             }
             return;
@@ -124,11 +121,14 @@ void NetQuorum::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataS
 
         const auto pQuorum = m_qman.GetQuorum(request.GetLLMQType(), request.GetQuorumHash());
         if (pQuorum == nullptr) {
-            if (sendQDATA(CQuorumDataRequest::Errors::QUORUM_NOT_FOUND, request_limit_exceeded)) {
+            if (sendQDATA(CQuorumDataRequest::Errors::QUORUM_NOT_FOUND, /*request_limit_exceeded=*/false)) {
                 m_peer_manager->PeerMisbehaving(pfrom.GetId(), 25, "request limit exceeded");
             }
             return;
         }
+
+        const CQuorumDataRequestKey key(pfrom.GetVerifiedProRegTxHash(), false, request.GetQuorumHash(), request.GetLLMQType());
+        const bool request_limit_exceeded = !m_qman.RegisterDataRequest(key, request, /*add_expiry_bias=*/false);
 
         CDataStream ssResponseData(SER_NETWORK, pfrom.GetCommonVersion());
 
