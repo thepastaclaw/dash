@@ -767,6 +767,38 @@ struct LimitedStringFormatter
     }
 };
 
+namespace detail {
+/** Fill an empty `v` with exactly `size` elements read from `s` via `Formatter`.
+ *
+ *  Grows the container in 5 MiB batches so a bogus stream size cannot demand a
+ *  huge up-front allocation. Precondition: `v.empty()`. Postcondition on
+ *  successful return: `v.size() == size`.
+ *
+ *  This is an internal building block; callers that already hold the count
+ *  (e.g. after a bounds-checked ReadCompactSize) use it to share the batching
+ *  logic between VectorFormatter and bounded readers.
+ */
+template<class Formatter, typename Stream, typename V>
+void UnserializeVectorContents(Stream& s, V& v, size_t size)
+{
+    assert(v.empty());
+    Formatter formatter;
+    size_t allocated = 0;
+    while (allocated < size) {
+        // For DoS prevention, do not blindly allocate as much as the stream claims to contain.
+        // Instead, allocate in 5MiB batches, so that an attacker actually needs to provide
+        // X MiB of data to make us allocate X+5 Mib.
+        static_assert(sizeof(typename V::value_type) <= MAX_VECTOR_ALLOCATE, "Vector element size too large");
+        allocated = std::min(size, allocated + MAX_VECTOR_ALLOCATE / sizeof(typename V::value_type));
+        v.reserve(allocated);
+        while (v.size() < allocated) {
+            v.emplace_back();
+            formatter.Unser(s, v.back());
+        }
+    }
+}
+} // namespace detail
+
 /** Formatter to serialize/deserialize vector elements using another formatter
  *
  * Example:
@@ -796,22 +828,8 @@ struct VectorFormatter
     template<typename Stream, typename V>
     void Unser(Stream& s, V& v)
     {
-        Formatter formatter;
         v.clear();
-        size_t size = ReadCompactSize(s);
-        size_t allocated = 0;
-        while (allocated < size) {
-            // For DoS prevention, do not blindly allocate as much as the stream claims to contain.
-            // Instead, allocate in 5MiB batches, so that an attacker actually needs to provide
-            // X MiB of data to make us allocate X+5 Mib.
-            static_assert(sizeof(typename V::value_type) <= MAX_VECTOR_ALLOCATE, "Vector element size too large");
-            allocated = std::min(size, allocated + MAX_VECTOR_ALLOCATE / sizeof(typename V::value_type));
-            v.reserve(allocated);
-            while (v.size() < allocated) {
-                v.emplace_back();
-                formatter.Unser(s, v.back());
-            }
-        }
+        detail::UnserializeVectorContents<Formatter>(s, v, ReadCompactSize(s));
     };
 };
 
@@ -954,6 +972,30 @@ struct DefaultFormatter
     template<typename Stream, typename T>
     static void Unser(Stream& s, T& t) { Unserialize(s, t); }
 };
+
+/** Read a length-prefixed vector, rejecting the count before deserializing any
+ *  element when it exceeds `max_size`.
+ *
+ *  On over-limit: `v` is left empty, no element is unserialized, and `false`
+ *  is returned. On success `v` holds the decoded elements and `true` is
+ *  returned. Stream errors during element decoding still throw, matching the
+ *  behavior of `operator>>`.
+ *
+ *  This is the reusable primitive for callers that know a runtime maximum
+ *  (e.g. an expected quorum size) and want to short-circuit expensive element
+ *  decoding when the wire count is nonsense.
+ */
+template<class Formatter = DefaultFormatter, typename Stream, typename V>
+[[nodiscard]] bool UnserializeVectorWithMaxSize(Stream& s, V& v, size_t max_size)
+{
+    v.clear();
+    const size_t size = ReadCompactSize(s);
+    if (size > max_size) {
+        return false;
+    }
+    detail::UnserializeVectorContents<Formatter>(s, v, size);
+    return true;
+}
 
 /**
  * string

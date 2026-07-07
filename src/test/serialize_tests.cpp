@@ -306,4 +306,97 @@ BOOST_AUTO_TEST_CASE(class_methods)
     }
 }
 
+namespace {
+// Tracks how many times its Unser() is invoked so a test can prove the primitive
+// short-circuits before any element decoding when the wire count exceeds the limit.
+struct CountingFormatter {
+    static inline int unser_calls{0};
+    static void Reset() { unser_calls = 0; }
+    template<typename Stream> static void Ser(Stream& s, const int& t) { Serialize(s, t); }
+    template<typename Stream> static void Unser(Stream& s, int& t) {
+        ++unser_calls;
+        Unserialize(s, t);
+    }
+};
+} // namespace
+
+BOOST_AUTO_TEST_CASE(unserialize_vector_with_max_size)
+{
+    const std::vector<int> v{1, 2, 3, 4, 5};
+
+    // Within-limit round trip.
+    {
+        DataStream ss;
+        ss << v;
+        std::vector<int> out{99, 100}; // pre-populated to exercise clearing
+        BOOST_CHECK(UnserializeVectorWithMaxSize(ss, out, v.size() + 3));
+        BOOST_CHECK(out == v);
+        BOOST_CHECK_EQUAL(ss.size(), 0U);
+    }
+
+    // Exact limit accepted.
+    {
+        DataStream ss;
+        ss << v;
+        std::vector<int> out;
+        BOOST_CHECK(UnserializeVectorWithMaxSize(ss, out, v.size()));
+        BOOST_CHECK(out == v);
+    }
+
+    // Over-limit rejected before any element unserialization; destination cleared.
+    {
+        DataStream ss;
+        ss << v;
+        const size_t total_serialized = GetSerializeSize(v, 0);
+        std::vector<int> out{99, 100};
+        CountingFormatter::Reset();
+        BOOST_CHECK(!UnserializeVectorWithMaxSize<CountingFormatter>(ss, out, v.size() - 1));
+        BOOST_CHECK(out.empty());
+        BOOST_CHECK_EQUAL(CountingFormatter::unser_calls, 0);
+        // Only the compact-size prefix was consumed; every element byte is left in the stream.
+        BOOST_CHECK_EQUAL(ss.size(), total_serialized - GetSizeOfCompactSize(v.size()));
+    }
+
+    // Zero-limit accepts an empty encoded vector.
+    {
+        DataStream ss;
+        ss << std::vector<int>{};
+        std::vector<int> out{42};
+        BOOST_CHECK(UnserializeVectorWithMaxSize(ss, out, 0));
+        BOOST_CHECK(out.empty());
+    }
+
+    // Zero-limit rejects any non-empty encoded vector before any element read.
+    {
+        DataStream ss;
+        ss << v;
+        std::vector<int> out;
+        CountingFormatter::Reset();
+        BOOST_CHECK(!UnserializeVectorWithMaxSize<CountingFormatter>(ss, out, 0));
+        BOOST_CHECK(out.empty());
+        BOOST_CHECK_EQUAL(CountingFormatter::unser_calls, 0);
+    }
+
+    // Custom element formatter round-trips through the primitive.
+    {
+        DataStream ss;
+        ss << v;
+        std::vector<int> out;
+        CountingFormatter::Reset();
+        BOOST_CHECK(UnserializeVectorWithMaxSize<CountingFormatter>(ss, out, v.size()));
+        BOOST_CHECK(out == v);
+        BOOST_CHECK_EQUAL(CountingFormatter::unser_calls, static_cast<int>(v.size()));
+    }
+
+    // Ordinary vector deserialization behavior is unchanged: the default operator>>
+    // still reads the whole vector without a runtime cap.
+    {
+        DataStream ss;
+        ss << v;
+        std::vector<int> out{99};
+        BOOST_REQUIRE_NO_THROW(ss >> out);
+        BOOST_CHECK(out == v);
+    }
+}
+
 BOOST_AUTO_TEST_SUITE_END()
