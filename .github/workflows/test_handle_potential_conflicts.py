@@ -157,6 +157,45 @@ not-json
 
         self.assertEqual([], managed_comments)
 
+    def test_save_managed_comment_deletes_trusted_legacy_comments_only(self):
+        current_body = handle_potential_conflicts.render_comment_body({
+            "outbound": [{"number": 11, "title": "old", "url": "https://example.test/11", "files": []}],
+            "inbound": {},
+        })
+        legacy_body = """<!-- add-pr-comment:conflict-prediction -->
+Old conflict prediction
+"""
+        comments = [
+            comment(1, current_body),
+            comment(2, legacy_body),
+            comment(3, legacy_body, USER),
+        ]
+        patched = []
+        deleted = []
+        original_list_issue_comments = handle_potential_conflicts.list_issue_comments
+        original_github_patch = handle_potential_conflicts.github_patch
+        original_github_delete = handle_potential_conflicts.github_delete
+        handle_potential_conflicts.list_issue_comments = lambda pr_num: comments
+        handle_potential_conflicts.github_patch = lambda path, payload: patched.append((path, payload))
+        handle_potential_conflicts.github_delete = lambda path: deleted.append(path)
+        try:
+            handle_potential_conflicts.save_managed_comment(
+                10,
+                {
+                    "outbound": [
+                        {"number": 12, "title": "new", "url": "https://example.test/12", "files": []},
+                    ],
+                    "inbound": {},
+                },
+            )
+        finally:
+            handle_potential_conflicts.list_issue_comments = original_list_issue_comments
+            handle_potential_conflicts.github_patch = original_github_patch
+            handle_potential_conflicts.github_delete = original_github_delete
+
+        self.assertEqual(["issues/comments/1"], [path for path, _payload in patched])
+        self.assertEqual(["issues/comments/2"], deleted)
+
     def test_update_comments_replaces_reciprocal_entries(self):
         our_pr_json = {
             "number": 10,
@@ -212,6 +251,147 @@ not-json
         self.assertIn("8", saved[10]["inbound"])
         self.assertNotIn("10", saved[11]["inbound"])
         self.assertEqual(10, saved[12]["inbound"]["10"]["number"])
+
+    def test_update_comments_removes_stale_inbound_reference(self):
+        our_pr_json = {
+            "number": 10,
+            "title": "fix: target",
+            "html_url": "https://github.com/dashpay/dash/pull/10",
+            "head": {"label": "contributor:target"},
+        }
+        comments = {
+            10: handle_potential_conflicts.ManagedComment(
+                comment_id=1,
+                body="",
+                state={
+                    "outbound": [],
+                    "inbound": {
+                        "8": {
+                            "number": 8,
+                            "title": "fix: stale source",
+                            "url": "https://github.com/dashpay/dash/pull/8",
+                            "files": ["src/stale.cpp"],
+                        },
+                        "9": {
+                            "number": 9,
+                            "title": "fix: still conflicts",
+                            "url": "https://github.com/dashpay/dash/pull/9",
+                            "files": ["src/still.cpp"],
+                        },
+                    },
+                },
+            ),
+            8: handle_potential_conflicts.ManagedComment(
+                comment_id=2,
+                body="",
+                state={
+                    "outbound": [
+                        {"number": 10, "title": "fix: target", "url": "https://github.com/dashpay/dash/pull/10", "files": []},
+                        {"number": 12, "title": "fix: other", "url": "https://github.com/dashpay/dash/pull/12", "files": []},
+                    ],
+                    "inbound": {},
+                },
+            ),
+        }
+        pr_json_by_number = {
+            8: {
+                "number": 8,
+                "state": "open",
+                "draft": False,
+                "mergeable_state": "clean",
+                "title": "fix: stale source refreshed",
+                "html_url": "https://github.com/dashpay/dash/pull/8",
+                "head": {"label": "contributor:stale-source"},
+            },
+            9: {
+                "number": 9,
+                "state": "open",
+                "draft": False,
+                "mergeable_state": "clean",
+                "title": "fix: still conflicts refreshed",
+                "html_url": "https://github.com/dashpay/dash/pull/9",
+                "head": {"label": "contributor:still-conflicts"},
+            },
+        }
+        mergeable_by_source_label = {
+            "contributor:stale-source": True,
+            "contributor:still-conflicts": False,
+        }
+        saved = {}
+        original_get_managed_comment = handle_potential_conflicts.get_managed_comment
+        original_save_managed_comment = handle_potential_conflicts.save_managed_comment
+        original_get_pr_json = handle_potential_conflicts.get_pr_json
+        original_branches_can_merge = handle_potential_conflicts.branches_can_merge
+        handle_potential_conflicts.get_managed_comment = lambda pr_num: comments[pr_num]
+        handle_potential_conflicts.save_managed_comment = lambda pr_num, state: saved.setdefault(pr_num, state)
+        handle_potential_conflicts.get_pr_json = lambda pr_num: pr_json_by_number[pr_num]
+        handle_potential_conflicts.branches_can_merge = lambda source_label, target_label: mergeable_by_source_label[source_label]
+        try:
+            handle_potential_conflicts.update_comments(our_pr_json, [])
+        finally:
+            handle_potential_conflicts.get_managed_comment = original_get_managed_comment
+            handle_potential_conflicts.save_managed_comment = original_save_managed_comment
+            handle_potential_conflicts.get_pr_json = original_get_pr_json
+            handle_potential_conflicts.branches_can_merge = original_branches_can_merge
+
+        self.assertNotIn("8", saved[10]["inbound"])
+        self.assertEqual(9, saved[10]["inbound"]["9"]["number"])
+        self.assertEqual("fix: still conflicts refreshed", saved[10]["inbound"]["9"]["title"])
+        self.assertEqual([12], [item["number"] for item in saved[8]["outbound"]])
+
+    def test_update_comments_preserves_inbound_when_source_fetch_fails(self):
+        our_pr_json = {
+            "number": 10,
+            "title": "fix: target",
+            "html_url": "https://github.com/dashpay/dash/pull/10",
+            "head": {"label": "contributor:target"},
+        }
+        comments = {
+            10: handle_potential_conflicts.ManagedComment(
+                comment_id=1,
+                body="",
+                state={
+                    "outbound": [],
+                    "inbound": {
+                        "8": {
+                            "number": 8,
+                            "title": "fix: source",
+                            "url": "https://github.com/dashpay/dash/pull/8",
+                            "files": ["src/source.cpp"],
+                        },
+                    },
+                },
+            ),
+            8: handle_potential_conflicts.ManagedComment(
+                comment_id=2,
+                body="",
+                state={
+                    "outbound": [
+                        {"number": 10, "title": "fix: target", "url": "https://github.com/dashpay/dash/pull/10", "files": []},
+                    ],
+                    "inbound": {},
+                },
+            ),
+        }
+        saved = {}
+        original_get_managed_comment = handle_potential_conflicts.get_managed_comment
+        original_save_managed_comment = handle_potential_conflicts.save_managed_comment
+        original_get_pr_json = handle_potential_conflicts.get_pr_json
+        original_branches_can_merge = handle_potential_conflicts.branches_can_merge
+        handle_potential_conflicts.get_managed_comment = lambda pr_num: comments[pr_num]
+        handle_potential_conflicts.save_managed_comment = lambda pr_num, state: saved.setdefault(pr_num, state)
+        handle_potential_conflicts.get_pr_json = lambda pr_num: None
+        handle_potential_conflicts.branches_can_merge = lambda source_label, target_label: self.fail("mergeability should not be checked")
+        try:
+            handle_potential_conflicts.update_comments(our_pr_json, [])
+        finally:
+            handle_potential_conflicts.get_managed_comment = original_get_managed_comment
+            handle_potential_conflicts.save_managed_comment = original_save_managed_comment
+            handle_potential_conflicts.get_pr_json = original_get_pr_json
+            handle_potential_conflicts.branches_can_merge = original_branches_can_merge
+
+        self.assertEqual(8, saved[10]["inbound"]["8"]["number"])
+        self.assertNotIn(8, saved)
 
     def test_cleanup_closed_pr_removes_bidirectional_state(self):
         comments = {

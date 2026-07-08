@@ -32,6 +32,7 @@ import requests
 COMMENT_MARKER = "dash-potential-conflicts:v1"
 COMMENT_START = f"<!-- {COMMENT_MARKER}"
 COMMENT_END = "-->"
+LEGACY_COMMENT_MARKER = "<!-- add-pr-comment:conflict-prediction -->"
 TRUSTED_COMMENT_AUTHORS = {"github-actions[bot]"}
 MAX_FILE_DETAILS = 12
 
@@ -41,6 +42,7 @@ class ManagedComment:
     comment_id: int | None
     body: str
     state: dict[str, Any]
+    is_legacy: bool = False
 
 
 def github_headers() -> dict[str, str]:
@@ -283,11 +285,21 @@ def find_managed_comments(pr_num: int) -> list[ManagedComment]:
                 body=body,
                 state=extract_state(body),
             ))
+        elif LEGACY_COMMENT_MARKER in body:
+            managed_comments.append(ManagedComment(
+                comment_id=comment.get("id"),
+                body=body,
+                state=normalize_state({}),
+                is_legacy=True,
+            ))
 
     return managed_comments
 
 
 def select_managed_comment(managed_comments: list[ManagedComment]) -> ManagedComment:
+    current_comments = [comment for comment in managed_comments if not comment.is_legacy]
+    if current_comments:
+        return current_comments[-1]
     if managed_comments:
         return managed_comments[-1]
     return ManagedComment(comment_id=None, body="", state=normalize_state({}))
@@ -474,6 +486,7 @@ def update_comments(our_pr_json: dict[str, Any], validated_conflicts: list[dict[
     current_outbound_numbers = {int(item["number"]) for item in validated_conflicts}
 
     our_state = normalize_state(our_managed_comment.state)
+    our_state = remove_stale_inbound_references(our_pr_json, our_state)
     our_state["outbound"] = validated_conflicts
     save_managed_comment(our_pr_num, our_state)
 
@@ -495,6 +508,76 @@ def update_comments(our_pr_json: dict[str, Any], validated_conflicts: list[dict[
 
         target_state["inbound"] = inbound
         save_managed_comment(target_pr_num, target_state)
+
+
+def source_pr_should_keep_inbound_reference(source_pr_json: dict[str, Any] | None, our_pr_json: dict[str, Any]) -> bool | None:
+    if source_pr_json is None:
+        print(f"Warning: Failed to fetch inbound source PR for PR #{our_pr_json['number']}; leaving inbound conflict reference", file=sys.stderr)
+        return None
+
+    source_pr_num = source_pr_json.get("number", "unknown")
+    if source_pr_json.get("state") == "closed":
+        print(f"PR #{source_pr_num} is closed. Removing stale inbound conflict reference", file=sys.stderr)
+        return False
+
+    if source_pr_json.get("draft", False):
+        print(f"PR #{source_pr_num} is a draft. Removing stale inbound conflict reference", file=sys.stderr)
+        return False
+
+    if source_pr_json.get("mergeable_state") == "dirty":
+        print(f"PR #{source_pr_num} already needs rebase. Removing stale inbound conflict reference", file=sys.stderr)
+        return False
+
+    if "head" not in source_pr_json or "label" not in source_pr_json["head"]:
+        print(f"Warning: Invalid PR data structure for PR {source_pr_num}; leaving inbound conflict reference", file=sys.stderr)
+        return None
+
+    can_merge = branches_can_merge(source_pr_json["head"]["label"], our_pr_json["head"]["label"])
+    if can_merge is True:
+        print(f"PR #{our_pr_json['number']} now merges after PR #{source_pr_json['number']}", file=sys.stderr)
+        return False
+    if can_merge is None:
+        return None
+
+    return True
+
+
+def remove_stale_inbound_references(our_pr_json: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
+    our_pr_num = int(our_pr_json["number"])
+    state = normalize_state(state)
+    if "head" not in our_pr_json or "label" not in our_pr_json["head"]:
+        print(f"Warning: Invalid PR data structure for PR {our_pr_num}; leaving inbound conflict references", file=sys.stderr)
+        return state
+
+    inbound = state["inbound"]
+    refreshed_inbound = {}
+    stale_source_numbers = []
+
+    for source_pr_num_text, item in inbound.items():
+        if not str(source_pr_num_text).isdigit():
+            continue
+
+        source_pr_num = int(source_pr_num_text)
+        source_pr_json = get_pr_json(source_pr_num)
+        should_keep = source_pr_should_keep_inbound_reference(source_pr_json, our_pr_json)
+
+        if should_keep is False:
+            stale_source_numbers.append(source_pr_num)
+            continue
+
+        if should_keep is True and source_pr_json is not None:
+            refreshed_inbound[str(source_pr_num)] = build_pr_item(source_pr_json, item.get("files", []))
+        else:
+            refreshed_inbound[str(source_pr_num)] = item
+
+    state["inbound"] = refreshed_inbound
+
+    for source_pr_num in sorted(stale_source_numbers):
+        source_comment = get_managed_comment(source_pr_num)
+        source_state = remove_outbound_reference(source_comment.state, our_pr_num)
+        save_managed_comment(source_pr_num, source_state)
+
+    return state
 
 
 def remove_outbound_reference(state: dict[str, Any], pr_num: int) -> dict[str, Any]:
