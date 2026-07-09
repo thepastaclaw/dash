@@ -11,6 +11,7 @@
 #include <consensus/amount.h>
 #include <consensus/consensus.h>
 #include <consensus/validation.h>
+#include <evo/sharedcollateral.h>
 #include <policy/feerate.h>
 #include <primitives/transaction.h>
 #include <script/interpreter.h>
@@ -110,6 +111,13 @@ bool IsStandardTx(const CTransaction& tx, bool permit_bare_multisig, const CFeeR
     TxoutType whichType;
     for (const CTxOut& txout : tx.vout) {
         if (!::IsStandard(txout.scriptPubKey, whichType)) {
+            // The shared-collateral template is intentionally nonstandard everywhere except as an
+            // output of a ProRegTx (consensus restricts it to the collateral slot of a valid
+            // shared registration; policy only needs to let well-formed registrations relay)
+            if (tx.IsSpecialTxVersion() && tx.nType == TRANSACTION_PROVIDER_REGISTER &&
+                sharedcollateral::IsSharedCollateralScript(txout.scriptPubKey)) {
+                continue;
+            }
             reason = "scriptpubkey";
             return false;
         }
@@ -162,6 +170,13 @@ bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
         std::vector<std::vector<unsigned char> > vSolutions;
         TxoutType whichType = Solver(prev.scriptPubKey, vSolutions);
         if (whichType == TxoutType::NONSTANDARD) {
+            // A ProDisTx spends the (nonstandard) shared-collateral template with an empty
+            // scriptSig; consensus pins everything else about the spend, and 7 bytes of
+            // OP_DROP/OP_TRUE carry no script-evaluation DoS surface
+            if (tx.IsSpecialTxVersion() && tx.nType == TRANSACTION_PROVIDER_DISSOLVE &&
+                sharedcollateral::IsSharedCollateralScript(prev.scriptPubKey)) {
+                continue;
+            }
             return false;
         } else if (whichType == TxoutType::SCRIPTHASH) {
             std::vector<std::vector<unsigned char> > stack;
