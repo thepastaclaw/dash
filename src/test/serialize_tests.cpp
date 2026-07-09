@@ -10,6 +10,8 @@
 
 #include <stdint.h>
 
+#include <limits>
+
 #include <boost/test/unit_test.hpp>
 
 BOOST_FIXTURE_TEST_SUITE(serialize_tests, BasicTestingSetup)
@@ -396,6 +398,38 @@ BOOST_AUTO_TEST_CASE(unserialize_vector_with_max_size)
         std::vector<int> out{99};
         BOOST_REQUIRE_NO_THROW(ss >> out);
         BOOST_CHECK(out == v);
+    }
+
+    // Wire count above MAX_SIZE must be rejected via the return value, not by
+    // ReadCompactSize throwing "size too large" before the caller-supplied gate
+    // runs. Hand-encode a CompactSize just past MAX_SIZE with the 0xfe (uint32)
+    // form and verify no element decode occurs.
+    {
+        static_assert(MAX_SIZE < std::numeric_limits<uint32_t>::max(),
+                      "MAX_SIZE must fit in a 32-bit CompactSize prefix for this test");
+        DataStream ss;
+        ss << uint8_t{0xfe};
+        ss << static_cast<uint32_t>(MAX_SIZE + 1);
+        std::vector<int> out;
+        CountingFormatter::Reset();
+        BOOST_CHECK(!UnserializeVectorWithMaxSize<CountingFormatter>(ss, out, /*max_size=*/8));
+        BOOST_CHECK(out.empty());
+        BOOST_CHECK_EQUAL(CountingFormatter::unser_calls, 0);
+    }
+
+    // Same, but with the 0xff (uint64) form well above MAX_SIZE — proves the
+    // uint64 comparison path, not a narrowed size_t, is what rejects the count.
+    // The uint64 form of CompactSize is canonical only when the payload is
+    // >= 0x100000000, so encode a value comfortably above that threshold.
+    {
+        DataStream ss;
+        ss << uint8_t{0xff};
+        ss << uint64_t{0x100000000ULL + MAX_SIZE};
+        std::vector<int> out;
+        CountingFormatter::Reset();
+        BOOST_CHECK(!UnserializeVectorWithMaxSize<CountingFormatter>(ss, out, /*max_size=*/8));
+        BOOST_CHECK(out.empty());
+        BOOST_CHECK_EQUAL(CountingFormatter::unser_calls, 0);
     }
 }
 

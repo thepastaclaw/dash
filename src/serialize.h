@@ -989,11 +989,16 @@ template<class Formatter = DefaultFormatter, typename Stream, typename V>
 [[nodiscard]] bool UnserializeVectorWithMaxSize(Stream& s, V& v, size_t max_size)
 {
     v.clear();
-    const size_t size = ReadCompactSize(s);
-    if (size > max_size) {
+    // Skip ReadCompactSize's generic MAX_SIZE range check so a wire count above
+    // MAX_SIZE is rejected here (returning false) rather than throwing before
+    // the caller-supplied `max_size` gate can be consulted. Compare in uint64_t
+    // to avoid narrowing on 32-bit size_t platforms, and only cast once the
+    // count fits.
+    const uint64_t size = ReadCompactSize(s, /*range_check=*/false);
+    if (size > uint64_t{max_size}) {
         return false;
     }
-    detail::UnserializeVectorContents<Formatter>(s, v, size);
+    detail::UnserializeVectorContents<Formatter>(s, v, static_cast<size_t>(size));
     return true;
 }
 
