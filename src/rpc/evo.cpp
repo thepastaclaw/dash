@@ -388,6 +388,21 @@ static std::string SubmitSpecialTx(const JSONRPCRequest& request, CChainstateHel
     return ::sendrawtransaction().HandleRequest(sendRequest).get_str();
 }
 
+static CBLSPublicKey ParseBLSPubKey(const std::string& hexKey, const std::string& paramName, bool specific_legacy_bls_scheme)
+{
+    CBLSPublicKey pubKey;
+    if (!pubKey.SetHexStr(hexKey, specific_legacy_bls_scheme)) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("%s must be a valid BLS public key, not %s", paramName, hexKey));
+    }
+    return pubKey;
+}
+
+template<typename SpecialTxPayload>
+static void UpdateSpecialTxInputsHash(const CMutableTransaction& tx, SpecialTxPayload& payload)
+{
+    payload.inputsHash = CalcTxInputsHash(CTransaction(tx));
+}
+
 #ifdef ENABLE_WALLET
 
 static CKeyID ParsePubKeyIDFromAddress(const std::string& strAddress, const std::string& paramName)
@@ -398,15 +413,6 @@ static CKeyID ParsePubKeyIDFromAddress(const std::string& strAddress, const std:
         throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("%s must be a valid P2PKH address, not %s", paramName, strAddress));
     }
     return ToKeyID(*pkhash);
-}
-
-static CBLSPublicKey ParseBLSPubKey(const std::string& hexKey, const std::string& paramName, bool specific_legacy_bls_scheme)
-{
-    CBLSPublicKey pubKey;
-    if (!pubKey.SetHexStr(hexKey, specific_legacy_bls_scheme)) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("%s must be a valid BLS public key, not %s", paramName, hexKey));
-    }
-    return pubKey;
 }
 
 static MasternodePayoutShares ParsePayouts(const UniValue& value, const std::string& paramName, CTxDestination& first_dest)
@@ -518,12 +524,6 @@ static void FundSpecialTx(CWallet& wallet, CMutableTransaction& tx, const Specia
         CHECK_NONFATAL(it != tx.vout.end());
         tx.vout.erase(it);
     }
-}
-
-template<typename SpecialTxPayload>
-static void UpdateSpecialTxInputsHash(const CMutableTransaction& tx, SpecialTxPayload& payload)
-{
-    payload.inputsHash = CalcTxInputsHash(CTransaction(tx));
 }
 
 template<typename SpecialTxPayload>
@@ -2019,7 +2019,8 @@ static RPCHelpMan protx_shared_combine()
         std::shared_ptr<CWallet> wallet{nullptr};
         try {
             wallet = GetWalletForJSONRPCRequest(request);
-        } catch (...) {
+        } catch (const UniValue&) {
+            // no wallet available through this endpoint
         }
         if (wallet) {
             return SignAndSendSpecialTx(request, chain_helper, chainman, tx, fSubmit);
@@ -2028,7 +2029,8 @@ static RPCHelpMan protx_shared_combine()
         if (fSubmit) {
             throw JSONRPCError(RPC_INVALID_PARAMETER,
                                "combining a shared registrar update requires a wallet to re-sign its stale fee "
-                               "inputs; combine with submit=false, then sign and send the result elsewhere");
+                               "inputs; call this through a wallet endpoint (/wallet/<name>), or combine with "
+                               "submit=false and sign and send the result elsewhere");
         }
         return EncodeHexTx(CTransaction(tx));
     }
