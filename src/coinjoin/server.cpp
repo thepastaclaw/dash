@@ -5,6 +5,7 @@
 #include <coinjoin/server.h>
 
 #include <active/masternode.h>
+#include <chainparams.h>
 #include <evo/deterministicmns.h>
 #include <masternode/meta.h>
 #include <masternode/sync.h>
@@ -209,6 +210,9 @@ void CCoinJoinServer::ProcessDSVIN(CNode& peer, CDataStream& vRecv)
 
     LogPrint(BCLog::COINJOIN, "DSVIN -- txCollateral %s", entry.txCollateral->ToString()); /* Continued */
 
+    // Note: unbalanced (promotion/demotion) entries are only valid post-V24; AddEntry ->
+    // IsValidInOuts rejects them pre-V24 and consumes the collateral to keep spam costly
+
     PoolMessage nMessageID = MSG_NOERR;
 
     entry.addr = peer.addr;
@@ -266,15 +270,25 @@ void CCoinJoinServer::CheckPool()
 
     // If we have an entry for each collateral, then create final tx
     if (nState == POOL_STATE_ACCEPTING_ENTRIES && size_t(GetEntriesCount()) == vecSessionCollaterals.size()) {
-        LogPrint(BCLog::COINJOIN, "CCoinJoinServer::CheckPool -- FINALIZE TRANSACTIONS\n");
-        CreateFinalTransaction();
+        if (GetStandardEntriesCount() >= CoinJoin::GetMinPoolParticipants()) {
+            LogPrint(BCLog::COINJOIN, "CCoinJoinServer::CheckPool -- FINALIZE TRANSACTIONS\n");
+            CreateFinalTransaction();
+            return;
+        }
+        // The participant set is frozen once entries are being accepted, so this session can
+        // never reach the standard-mixer minimum anymore - reset instead of stalling everyone
+        // until timeout. Shouldn't happen given the promotion/demotion entry cap in AddEntry.
+        LogPrint(BCLog::COINJOIN, "CCoinJoinServer::CheckPool -- all entries received but insufficient standard mixers (%d), resetting session\n", GetStandardEntriesCount());
+        WITH_LOCK(cs_coinjoin, SetNull());
         return;
     }
 
     // Check for Time Out
     // If we timed out while accepting entries, then if we have more than minimum, create final tx
-    if (nState == POOL_STATE_ACCEPTING_ENTRIES && CCoinJoinServer::HasTimedOut() &&
-        GetEntriesCount() >= CoinJoin::GetMinPoolParticipants()) {
+    // PRIVACY: Only count standard mixing entries toward minimum participant threshold
+    // Promotion/demotion entries don't count - they get privacy from standard mixers
+    if (nState == POOL_STATE_ACCEPTING_ENTRIES && CCoinJoinServer::HasTimedOut()
+            && GetStandardEntriesCount() >= CoinJoin::GetMinPoolParticipants()) {
         // Punish misbehaving participants
         ChargeFees();
         // Try to complete this session ignoring the misbehaving ones
@@ -585,11 +599,31 @@ bool CCoinJoinServer::AddEntry(const CCoinJoinEntry& entry, PoolMessage& nMessag
         return false;
     }
 
-    if (entry.vecTxDSIn.size() > COINJOIN_ENTRY_MAX_SIZE) {
-        LogPrint(BCLog::COINJOIN, "CCoinJoinServer::%s -- ERROR: too many inputs! %d/%d\n", __func__, entry.vecTxDSIn.size(), COINJOIN_ENTRY_MAX_SIZE);
+    // Post-V24: allow up to PROMOTION_RATIO (10) inputs for promotion entries
+    // Pre-V24: max COINJOIN_ENTRY_MAX_SIZE (9) inputs
+    const size_t nMaxEntryInputs = CoinJoin::IsPromotionDemotionActive(m_chainman) ? CoinJoin::PROMOTION_RATIO : COINJOIN_ENTRY_MAX_SIZE;
+
+    if (entry.vecTxDSIn.size() > nMaxEntryInputs) {
+        LogPrint(BCLog::COINJOIN, "CCoinJoinServer::%s -- ERROR: too many inputs! %d/%d\n", __func__, entry.vecTxDSIn.size(), nMaxEntryInputs);
         nMessageIDRet = ERR_MAXIMUM;
         ConsumeCollateral(entry.txCollateral);
         return false;
+    }
+
+    // Post-V24: cap promotion/demotion entries so the session can still reach
+    // GetMinPoolParticipants() standard entries once every collateral is matched by an
+    // entry. The participant set is frozen while accepting entries, so without this cap
+    // the pool could fill up but never satisfy the standard-mixer minimum in CheckPool.
+    if (!entry.IsStandardMixingEntry()) {
+        const int nMaxNonStandardEntries = int(vecSessionCollaterals.size()) - CoinJoin::GetMinPoolParticipants();
+        const int nNonStandardEntries = GetEntriesCount() - GetStandardEntriesCount();
+        if (nNonStandardEntries >= nMaxNonStandardEntries) {
+            LogPrint(BCLog::COINJOIN, "CCoinJoinServer::%s -- rejecting promotion/demotion entry, not enough standard mixer slots left! %d/%d\n",
+                     __func__, nNonStandardEntries, nMaxNonStandardEntries);
+            // the entry itself is valid, the session just can't accept it - don't punish
+            nMessageIDRet = ERR_ENTRIES_FULL;
+            return false;
+        }
     }
 
     std::vector<CTxIn> vin;

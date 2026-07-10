@@ -25,6 +25,7 @@
 #include <util/strencodings.h>
 #include <util/ui_change_type.h>
 #include <validationinterface.h>
+#include <wallet/coincontrol.h>
 #include <wallet/crypter.h>
 #include <wallet/coinselection.h>
 #include <external_signer.h>
@@ -34,6 +35,7 @@
 #include <wallet/walletutil.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <map>
 #include <memory>
@@ -280,6 +282,14 @@ enum class RescanStatus : uint8_t {
 };
 
 class WalletRescanReserver; //forward declarations for ScanForWalletTransactions/RescanFromTime
+
+//! Per-denomination coin counts (post-V24 promotion/demotion feature), indexed the same way as
+//! CoinJoin::vecStandardDenominations (index 0 = largest denomination).
+struct CoinJoinDenomCounts {
+    std::array<int, 5> total{};
+    std::array<int, 5> fully_mixed{};
+};
+
 /**
  * A CWallet maintains a set of transactions and balances, and provides the ability to create new transactions.
  */
@@ -571,6 +581,7 @@ public:
 
     // Coin selection
     bool SelectTxDSInsByDenomination(int nDenom, CAmount nValueMax, std::vector<CTxDSIn>& vecTxDSInRet);
+    bool SelectTxDSInsByDenomination(int nDenom, CAmount nValueMax, std::vector<CTxDSIn>& vecTxDSInRet, CoinType nCoinType);
     bool SelectDenominatedAmounts(CAmount nValueMax, std::set<CAmount>& setAmountsRet) const;
 
     std::vector<CompactTallyItem> SelectCoinsGroupedByAddresses(bool fSkipDenominated = true, bool fAnonymizable = true, bool fSkipUnconfirmed = true, int nMaxOupointsPerAddress = -1) const;
@@ -587,6 +598,29 @@ public:
 
     bool IsDenominated(const COutPoint& outpoint) const;
     bool IsFullyMixed(const COutPoint& outpoint) const;
+
+    /**
+     * Count coins of a specific denomination (post-V24 promotion/demotion feature)
+     * @param nDenom The denomination to count (bitshifted integer)
+     * @param fFullyMixedOnly If true, only count fully-mixed coins
+     * @return Number of coins matching the criteria
+     */
+    int CountCoinsByDenomination(int nDenom, bool fFullyMixedOnly = false) const;
+
+    /**
+     * Count coins across all standard denominations in a single wallet scan
+     * (post-V24 promotion/demotion feature). Prefer this over repeated
+     * CountCoinsByDenomination() calls when counts for multiple denominations are needed.
+     */
+    CoinJoinDenomCounts GetDenominationCounts() const;
+
+    /**
+     * Select fully-mixed coins for promotion (post-V24 feature)
+     * @param nDenom The denomination to select (bitshifted integer)
+     * @param nCount Maximum number of coins to select
+     * @return Vector of outpoints for selected coins
+     */
+    std::vector<COutPoint> SelectFullyMixedForPromotion(int nDenom, int nCount) const;
 
     bool IsSpent(const COutPoint& outpoint) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
