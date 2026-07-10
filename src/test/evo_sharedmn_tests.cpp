@@ -9,6 +9,7 @@
 #include <evo/dmnstate.h>
 #include <evo/providertx.h>
 #include <evo/sharedcollateral.h>
+#include <evo/specialtx.h>
 #include <evo/specialtxman.h>
 
 #include <arith_uint256.h>
@@ -16,6 +17,7 @@
 #include <key.h>
 #include <messagesigner.h>
 #include <policy/policy.h>
+#include <policy/settings.h>
 #include <random.h>
 #include <script/interpreter.h>
 #include <script/script.h>
@@ -255,6 +257,85 @@ BOOST_AUTO_TEST_CASE(shared_proregtx_serialization)
     BOOST_CHECK(nonShared2.vchJoinSigs.empty());
     BOOST_CHECK_EQUAL(nonShared2.nEarlyPeriodBlocks, uint32_t{0});
     BOOST_CHECK_EQUAL(nonShared2.nEarlyPenalty, CAmount{0});
+}
+
+BOOST_AUTO_TEST_CASE(shared_collateral_standardness)
+{
+    // The relay carve-out for the (nonstandard) shared-collateral template must mirror the
+    // consensus rule in CheckSharedCollateralTemplateOutputs: it applies only to the declared
+    // internal collateral output of a decodable shared ProRegTx. Everything else must stay
+    // nonstandard, or pre-activation nodes would relay transactions that freeze funds.
+    CKey refund_keys[2], owner_keys[2], voting_key;
+    voting_key.MakeNewKey(true);
+
+    CProRegTx proTx;
+    proTx.nVersion = ProTxVersion::MultiPayout;
+    proTx.netInfo = NetInfoInterface::MakeNetInfo(proTx.nVersion);
+    proTx.keyIDVoting = voting_key.GetPubKey().GetID();
+    proTx.collateralOutpoint = COutPoint(uint256(), 0);
+    for (size_t i = 0; i < 2; i++) {
+        proTx.shares.push_back(NewShare(dmn_types::Regular.collat_amount / 2, refund_keys[i], owner_keys[i]));
+    }
+    proTx.vchJoinSigs = DummyJoinSigs(2);
+
+    CMutableTransaction mtx;
+    mtx.nVersion = 3;
+    mtx.nType = TRANSACTION_PROVIDER_REGISTER;
+    mtx.vout.emplace_back(dmn_types::Regular.collat_amount, sharedcollateral::SharedCollateralScript());
+    SetTxPayload(mtx, proTx);
+
+    std::string reason;
+    // The declared internal collateral slot of a shared registration relays
+    BOOST_CHECK(IsStandardTx(CTransaction(mtx), reason));
+
+    // A non-special transaction paying the template is nonstandard
+    {
+        CMutableTransaction plain;
+        plain.vout.emplace_back(dmn_types::Regular.collat_amount, sharedcollateral::SharedCollateralScript());
+        BOOST_CHECK(!IsStandardTx(CTransaction(plain), reason));
+        BOOST_CHECK_EQUAL(reason, "scriptpubkey");
+    }
+
+    // A normal (non-shared) ProRegTx gets no carve-out for a template output
+    {
+        CProRegTx nonShared;
+        nonShared.nVersion = ProTxVersion::MultiPayout;
+        nonShared.netInfo = NetInfoInterface::MakeNetInfo(nonShared.nVersion);
+        nonShared.keyIDVoting = proTx.keyIDVoting;
+        nonShared.collateralOutpoint = COutPoint(uint256(), 0);
+        CMutableTransaction mtx2{mtx};
+        SetTxPayload(mtx2, nonShared);
+        BOOST_CHECK(!IsStandardTx(CTransaction(mtx2), reason));
+        BOOST_CHECK_EQUAL(reason, "scriptpubkey");
+    }
+
+    // The template output index must match the declared collateral index
+    {
+        CProRegTx wrongIndex{proTx};
+        wrongIndex.collateralOutpoint.n = 1;
+        CMutableTransaction mtx2{mtx};
+        SetTxPayload(mtx2, wrongIndex);
+        BOOST_CHECK(!IsStandardTx(CTransaction(mtx2), reason));
+        BOOST_CHECK_EQUAL(reason, "scriptpubkey");
+    }
+
+    // A shared registration referencing external collateral gets no carve-out either
+    {
+        CProRegTx external{proTx};
+        external.collateralOutpoint.hash = uint256::ONE;
+        CMutableTransaction mtx2{mtx};
+        SetTxPayload(mtx2, external);
+        BOOST_CHECK(!IsStandardTx(CTransaction(mtx2), reason));
+        BOOST_CHECK_EQUAL(reason, "scriptpubkey");
+    }
+
+    // An undecodable payload gets no carve-out
+    {
+        CMutableTransaction mtx2{mtx};
+        mtx2.vExtraPayload = {0xde, 0xad};
+        BOOST_CHECK(!IsStandardTx(CTransaction(mtx2), reason));
+        BOOST_CHECK_EQUAL(reason, "scriptpubkey");
+    }
 }
 
 BOOST_AUTO_TEST_CASE(canonical_signature_verification)

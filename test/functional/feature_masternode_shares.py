@@ -6,7 +6,7 @@
 
 from decimal import Decimal
 
-from test_framework.messages import COIN, tx_from_hex
+from test_framework.messages import COIN, CTxOut, tx_from_hex
 from test_framework.script import CScript
 from test_framework.test_framework import DashTestFramework, p2p_port
 from test_framework.util import (
@@ -78,6 +78,31 @@ class MasternodeSharesTest(DashTestFramework):
 
     def run_test(self):
         node = self.nodes[0]
+
+        self.log.info("The relay carve-out is limited to the collateral slot of a shared registration")
+        # Before v24 activates, policy is the only thing keeping template outputs (which would be
+        # permanently frozen) off the network, so the carve-out must not cover a normal ProRegTx
+        # that merely carries a template output. Standardness is checked before any payload or
+        # signature validation, so the reject reason pins down the guard being tested.
+        assert not softfork_active(node, "v24")
+        # register_prepare only resolves the outpoint (the 1000 DASH amount is enforced by
+        # consensus later), so a 1 DASH outpoint is enough to build a normal ProRegTx here
+        collateral_addr, fee_addr = node.getnewaddress(), node.getnewaddress()
+        collateral_txid = node.sendtoaddress(collateral_addr, 1)
+        node.sendtoaddress(fee_addr, 1)
+        self.generate(node, 1, sync_fun=self.no_op)
+        collateral_vout = next(i for i, out in enumerate(node.getrawtransaction(collateral_txid, 1)["vout"])
+                               if out["value"] == 1)
+        prepared = node.protx("register_prepare", collateral_txid, collateral_vout,
+                              f"127.0.0.1:{p2p_port(2)}", node.getnewaddress(),
+                              node.bls("generate")["public"], node.getnewaddress(), 0,
+                              node.getnewaddress(), fee_addr)
+        reg_tx = tx_from_hex(prepared["tx"])
+        reg_tx.vout.append(CTxOut(1 * COIN, CScript(bytes.fromhex(SHARED_COLLATERAL_SCRIPT))))
+        res = node.testmempoolaccept([reg_tx.serialize().hex()])[0]
+        assert_equal(res["allowed"], False)
+        assert_equal(res["reject-reason"], "scriptpubkey")
+
         self.activate_v24()
 
         self.log.info("Register a two-participant shared masternode")
