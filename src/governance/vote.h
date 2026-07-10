@@ -7,6 +7,7 @@
 
 #include <hash.h>
 #include <primitives/transaction.h>
+#include <serialize.h>
 #include <uint256.h>
 #include <util/string.h>
 
@@ -59,6 +60,18 @@ class CGovernanceVote
     friend bool operator==(const CGovernanceVote& vote1, const CGovernanceVote& vote2);
 
     friend bool operator<(const CGovernanceVote& vote1, const CGovernanceVote& vote2);
+
+public:
+    // Only two encodings are wire-valid for a governance vote signature: a
+    // compact ECDSA voting-key signature (proposal FUNDING) or a BLS operator
+    // signature (every other signal). Semantic and crypto validation later
+    // selects the correct scheme per vote outcome/signal, so the wire layer
+    // treats these two lengths as the only structurally legitimate sizes.
+    // Values mirror CPubKey::COMPACT_SIGNATURE_SIZE and CBLSSignature::SerSize
+    // / BLS_CURVE_SIG_SIZE; a static_assert in vote.cpp keeps them in sync.
+    static constexpr size_t COMPACT_SIG_SIZE = 65;
+    static constexpr size_t BLS_SIG_SIZE = 96;
+    static constexpr size_t MAX_SIG_SIZE = BLS_SIG_SIZE;
 
 private:
     COutPoint masternodeOutpoint;
@@ -126,6 +139,30 @@ public:
             READWRITE(obj.vchSig);
         }
         SER_READ(obj, obj.UpdateHash());
+    }
+
+    /**
+     * Bounded network reader. Reads the same wire layout as operator>> but
+     * caps the signature vector at MAX_SIG_SIZE bytes before allocation and
+     * requires the on-wire length to be exactly one of the two structurally
+     * legitimate sizes (COMPACT_SIG_SIZE or BLS_SIG_SIZE). Returns false on
+     * an out-of-range CompactSize or a wrong exact size; stream errors during
+     * element reads (e.g. an internally truncated buffer) still throw
+     * std::ios_base::failure and must be caught by the caller. Successful
+     * reads leave the object in the same state operator>> would.
+     */
+    template <typename Stream>
+    [[nodiscard]] bool UnserializeFromNet(Stream& s)
+    {
+        s >> masternodeOutpoint >> nParentHash >> nVoteOutcome >> nVoteSignal >> nTime;
+        if (!UnserializeVectorWithMaxSize(s, vchSig, MAX_SIG_SIZE)) {
+            return false;
+        }
+        if (vchSig.size() != COMPACT_SIG_SIZE && vchSig.size() != BLS_SIG_SIZE) {
+            return false;
+        }
+        UpdateHash();
+        return true;
     }
 };
 

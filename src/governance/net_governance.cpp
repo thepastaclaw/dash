@@ -193,7 +193,30 @@ void NetGovernance::ProcessMessage(CNode& peer, const std::string& msg_type, CDa
     // A NEW GOVERNANCE OBJECT VOTE HAS ARRIVED
     else if (msg_type == NetMsgType::MNGOVERNANCEOBJECTVOTE) {
         CGovernanceVote vote;
-        vRecv >> vote;
+        // Bounded read: a wire signature of any size other than the two
+        // structurally legitimate encodings (65-byte compact ECDSA voting-key
+        // or 96-byte BLS operator) is an unambiguously malformed vote. The
+        // default byte-vector unserializer would resize to the peer-declared
+        // CompactSize (up to MAX_SIZE = 32 MiB) before consulting EOF, so a
+        // single peer could otherwise force a ~5 MiB zero-fill per govobjvote
+        // and repeat indefinitely — the outer ProcessMessages catch only logs.
+        // Reject locally with a full ban so this cannot be replayed on the
+        // same connection.
+        try {
+            if (!vote.UnserializeFromNet(vRecv)) {
+                LogPrint(BCLog::GOBJECT,
+                         "MNGOVERNANCEOBJECTVOTE -- invalid signature size, peer=%d\n",
+                         peer.GetId());
+                m_peer_manager->PeerMisbehaving(peer.GetId(), 100, "invalid governance vote signature size");
+                return;
+            }
+        } catch (const std::ios_base::failure&) {
+            LogPrint(BCLog::GOBJECT,
+                     "MNGOVERNANCEOBJECTVOTE -- malformed vote (truncated), peer=%d\n",
+                     peer.GetId());
+            m_peer_manager->PeerMisbehaving(peer.GetId(), 100, "malformed governance vote");
+            return;
+        }
 
         uint256 nHash = vote.GetHash();
 

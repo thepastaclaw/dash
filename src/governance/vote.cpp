@@ -9,11 +9,22 @@
 #include <evo/dmn_types.h>
 #include <masternode/sync.h>
 #include <messagesigner.h>
+#include <pubkey.h>
 
 #include <chainparams.h>
 #include <logging.h>
 #include <timedata.h>
 #include <util/string.h>
+
+// Keep the wire-cap constants in vote.h locked to their canonical crypto sizes.
+// vote.h intentionally does not include <bls/bls.h> or <pubkey.h> to keep its
+// dependents small, so we verify the numbers agree in the .cpp instead.
+static_assert(CGovernanceVote::COMPACT_SIG_SIZE == CPubKey::COMPACT_SIGNATURE_SIZE,
+              "governance vote compact ECDSA size drifted from CPubKey::COMPACT_SIGNATURE_SIZE");
+static_assert(CGovernanceVote::BLS_SIG_SIZE == CBLSSignature::SerSize,
+              "governance vote BLS size drifted from CBLSSignature::SerSize");
+static_assert(CGovernanceVote::BLS_SIG_SIZE == BLS_CURVE_SIG_SIZE,
+              "governance vote BLS size drifted from BLS_CURVE_SIG_SIZE");
 
 std::string CGovernanceVoting::ConvertOutcomeToString(vote_outcome_enum_t nOutcome)
 {
