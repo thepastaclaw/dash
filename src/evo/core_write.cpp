@@ -53,7 +53,7 @@ const std::map<std::string, RPCResult> RPCRESULT_MAP{{
     RESULT_MAP_ENTRY("operatorPayoutAddress", RPCResult::Type::STR, "Dash address used for operator reward payments"),
     RESULT_MAP_ENTRY("operatorReward", RPCResult::Type::NUM, "Fraction in %% of reward shared with the operator between 0 and 10000"),
     RESULT_MAP_ENTRY("outpoint", RPCResult::Type::STR_HEX,"The outpoint of the masternode"),
-    RESULT_MAP_ENTRY("ownerAddress", RPCResult::Type::STR, "Dash address used for payee updates and proposal voting"),
+    RESULT_MAP_ENTRY("ownerAddress", RPCResult::Type::STR, "Dash address used for payee updates and proposal voting; omitted for shared masternodes, whose share owner keys replace it"),
     RESULT_MAP_ENTRY("payoutAddress", RPCResult::Type::STR, "Dash address used for masternode reward payments"),
     {"payouts",
         {RPCResult::Type::ARR, "payouts", "Owner masternode reward payout shares",
@@ -237,7 +237,7 @@ RPCResult CDeterministicMNState::GetJsonHelp(const std::string& key, bool option
         GetRpcResult("PoSeRevivedHeight"),
         GetRpcResult("PoSeBanHeight"),
         GetRpcResult("revocationReason"),
-        GetRpcResult("ownerAddress"),
+        GetRpcResult("ownerAddress", /*optional=*/true),
         GetRpcResult("votingAddress"),
         GetRpcResult("platformNodeID", /*optional=*/true),
         GetRpcResult("platformP2PPort", /*optional=*/true),
@@ -267,7 +267,11 @@ UniValue CDeterministicMNState::ToJson(MnType nType) const
     obj.pushKV("PoSeRevivedHeight", nPoSeRevivedHeight);
     obj.pushKV("PoSeBanHeight", nPoSeBanHeight);
     obj.pushKV("revocationReason", nRevocationReason);
-    obj.pushKV("ownerAddress", EncodeDestination(PKHash(keyIDOwner)));
+    if (!IsShared()) {
+        // Shared records have no owner key (consensus requires a null keyIDOwner); the share
+        // owner keys in the share table replace it
+        obj.pushKV("ownerAddress", EncodeDestination(PKHash(keyIDOwner)));
+    }
     obj.pushKV("votingAddress", EncodeDestination(PKHash(keyIDVoting)));
     if (nType == MnType::Evo) {
         obj.pushKV("platformNodeID", platformNodeID.ToString());
@@ -334,7 +338,7 @@ RPCResult CProRegTx::GetJsonHelp(const std::string& key, bool optional)
         GetRpcResult("collateralIndex"),
         GetRpcResult("service", /*optional=*/true),
         GetRpcResult("addresses"),
-        GetRpcResult("ownerAddress"),
+        GetRpcResult("ownerAddress", /*optional=*/true),
         GetRpcResult("votingAddress"),
         GetRpcResult("payoutAddress", /*optional=*/true),
         GetRpcResult("payouts", /*optional=*/true),
@@ -361,7 +365,11 @@ UniValue CProRegTx::ToJson() const
         ret.pushKV("service", GetDeprecatedServiceField(*this));
     }
     ret.pushKV("addresses", GetNetInfoWithLegacyFields(*this, nType));
-    ret.pushKV("ownerAddress", EncodeDestination(PKHash(keyIDOwner)));
+    if (!IsShared()) {
+        // Shared registrations have no owner key (consensus requires a null keyIDOwner); the
+        // share owner keys in the share table replace it
+        ret.pushKV("ownerAddress", EncodeDestination(PKHash(keyIDOwner)));
+    }
     ret.pushKV("votingAddress", EncodeDestination(PKHash(keyIDVoting)));
     if (IsShared()) {
         ret.pushKV("shares", ShareListToJson(shares));

@@ -113,10 +113,13 @@ class MasternodeSharesTest(DashTestFramework):
         assert_equal(raw["proRegTx"]["earlyPeriodBlocks"], EARLY_PERIOD_BLOCKS)
         assert_equal(raw["proRegTx"]["earlyPenalty"], EARLY_PENALTY)
         assert_equal(raw["vout"][collateral_index]["scriptPubKey"]["hex"], SHARED_COLLATERAL_SCRIPT)
+        # shared records have no owner key, so no owner address may be reported
+        assert "ownerAddress" not in raw["proRegTx"]
 
         info = node.protx("info", protx_hash)
         assert_equal(info["state"]["version"], 4)
         assert_equal([s["ownerAddress"] for s in info["state"]["shares"]], [owner1, owner2])
+        assert "ownerAddress" not in info["state"]
         assert "payoutAddress" not in info["state"]
         assert "payouts" not in info["state"]
 
