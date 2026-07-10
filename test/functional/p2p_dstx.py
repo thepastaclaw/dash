@@ -88,7 +88,8 @@ class P2PDSTXTest(BitcoinTestFramework):
         self.log.info("Structurally invalid DSTX => stronger (+%d) misbehavior penalty", INVALID_DSTX_SCORE)
         peer_invalid = node.add_p2p_connection(P2PInterface())
         bad = self.make_dstx(nonce=2)
-        bad.tx.vout.pop()  # vin.size() != vout.size() trips IsValidStructure
+        # A non-denominated output is invalid both before and after V24.
+        bad.tx.vout[0].nValue = 0
         with node.assert_debug_log([
             "Invalid DSTX structure",
             "Misbehaving",
