@@ -203,8 +203,22 @@ void NetQuorum::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataS
 
         // Check if request has QUORUM_VERIFICATION_VECTOR data
         if (request.GetDataMask() & CQuorumDataRequest::QUORUM_VERIFICATION_VECTOR) {
+            // Reject the wire count before decoding any BLS G1 element so a bogus
+            // count cannot spend arbitrary CPU on doomed decodes. A mismatch — over
+            // or under — is a protocol violation worth a full ban.
+            const size_t expected_vvec_size{static_cast<size_t>(pQuorum->params.threshold)};
             std::vector<CBLSPublicKey> verificationVector;
-            vRecv >> verificationVector;
+            bool valid_size;
+            try {
+                valid_size = UnserializeVectorWithMaxSize(vRecv, verificationVector, expected_vvec_size) &&
+                             verificationVector.size() == expected_vvec_size;
+            } catch (const std::ios_base::failure&) {
+                valid_size = false;
+            }
+            if (!valid_size) {
+                m_peer_manager->PeerMisbehaving(pfrom.GetId(), 100, "invalid quorum verification vector size");
+                return;
+            }
 
             if (pQuorum->SetVerificationVector(verificationVector)) {
                 m_qman.QueueQuorumForWarming(pQuorum);
@@ -279,7 +293,18 @@ bool NetQuorum::ProcessContribQDATA(CNode& pfrom, CDataStream& vRecv,
     }
 
     std::vector<CBLSIESEncryptedObject<CBLSSecretKey>> vecEncrypted;
-    vRecv >> vecEncrypted;
+    const size_t expected_contributions{static_cast<size_t>(std::ranges::count(quorum.qc->validMembers, true))};
+    bool valid_size;
+    try {
+        valid_size = UnserializeVectorWithMaxSize(vRecv, vecEncrypted, expected_contributions) &&
+                     vecEncrypted.size() == expected_contributions;
+    } catch (const std::ios_base::failure&) {
+        valid_size = false;
+    }
+    if (!valid_size) {
+        m_peer_manager->PeerMisbehaving(pfrom.GetId(), 100, "invalid encrypted contribution vector size");
+        return false;
+    }
 
     std::vector<CBLSSecretKey> vecSecretKeys;
     vecSecretKeys.resize(vecEncrypted.size());
