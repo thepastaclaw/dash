@@ -26,6 +26,14 @@ class DisableWalletTest (BitcoinTestFramework):
         x = self.nodes[0].validateaddress('ycwedq2f3sz2Yf9JqZsBCQPxp18WU3Hp4J')
         assert x['isvalid'] == True
 
+        # Wallet-free protx commands stay registered: shared_combine only merges
+        # externally collected signatures, unlike its wallet-signing counterpart
+        assert 'protx shared_combine' in self.nodes[0].help('protx shared_combine')
+        assert 'unknown command' in self.nodes[0].help('protx shared_sign')
+        # and its handler runs without a wallet (fails on the input, not on wallet access)
+        assert_raises_rpc_error(-8, 'transaction not deserializable',
+                                self.nodes[0].protx, 'shared_combine', 'ff', [])
+
 
 if __name__ == '__main__':
     DisableWalletTest().main()

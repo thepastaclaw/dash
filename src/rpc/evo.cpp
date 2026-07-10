@@ -38,8 +38,8 @@
 #include <wallet/wallet.h>
 #endif // ENABLE_WALLET
 
-#ifdef ENABLE_WALLET
 extern RPCHelpMan sendrawtransaction();
+#ifdef ENABLE_WALLET
 namespace wallet {
 extern RPCHelpMan signrawtransactionwithwallet();
 } // namespace wallet
@@ -1882,13 +1882,17 @@ static RPCHelpMan protx_update_shared_registrar_prepare()
     };
 }
 
+#endif // ENABLE_WALLET
+
 static RPCHelpMan protx_shared_combine()
 {
     return RPCHelpMan{"protx shared_combine",
         "\nCombines share owner signatures produced by \"protx shared_sign\" into a shared masternode\n"
         "transaction. For a shared ProRegTx the completed transaction hex is returned and the funding\n"
         "inputs still have to be signed (e.g. by passing the result around signrawtransactionwithwallet).\n"
-        "For a ProDisTx or ProUpSharedRegTx the transaction can be submitted directly.\n",
+        "For a ProDisTx the transaction can be submitted directly. For a ProUpSharedRegTx a wallet is\n"
+        "needed to re-sign its fee inputs, which combining invalidates; without one, combine with\n"
+        "submit=false and sign and send the result elsewhere.\n",
         {
             {"tx", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "The serialized transaction in hex format."},
             {"signatures", RPCArg::Type::ARR, RPCArg::Optional::NO, "Signature entries collected from \"protx shared_sign\".",
@@ -2010,15 +2014,28 @@ static RPCHelpMan protx_shared_combine()
         }
         SetTxPayload(tx, *opt_ptx);
         // Inserting the signatures changed the payload, so the fee inputs signed at prepare time
-        // are stale; SignAndSendSpecialTx re-signs them with this wallet before submitting
-        return SignAndSendSpecialTx(request, chain_helper, chainman, tx, fSubmit);
+        // are stale and have to be re-signed by a wallet before submission
+#ifdef ENABLE_WALLET
+        std::shared_ptr<CWallet> wallet{nullptr};
+        try {
+            wallet = GetWalletForJSONRPCRequest(request);
+        } catch (...) {
+        }
+        if (wallet) {
+            return SignAndSendSpecialTx(request, chain_helper, chainman, tx, fSubmit);
+        }
+#endif // ENABLE_WALLET
+        if (fSubmit) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER,
+                               "combining a shared registrar update requires a wallet to re-sign its stale fee "
+                               "inputs; combine with submit=false, then sign and send the result elsewhere");
+        }
+        return EncodeHexTx(CTransaction(tx));
     }
     throw JSONRPCError(RPC_INVALID_PARAMETER, "transaction is not a shared masternode transaction");
 },
     };
 }
-
-#endif//ENABLE_WALLET
 
 #ifdef ENABLE_WALLET
 static bool CheckWalletOwnsScript(const CWallet* const pwallet, const CScript& script) {
@@ -2816,11 +2833,11 @@ static RPCHelpMan protx_help()
         "  update_registrar_legacy  - (DEPRECATED) Create ProUpRegTx by parsing BLS using the legacy scheme, then send it to network\n"
         "  revoke                   - Create and send ProUpRevTx to network\n"
         "  shared_sign              - Sign a shared masternode transaction with this wallet's share owner keys\n"
-        "  shared_combine           - Combine share owner signatures into a shared masternode transaction\n"
         "  dissolve                 - Create, sign and send a unilateral ProDisTx\n"
         "  update_share             - Create and send a ProUpShareTx updating one share's reward address\n"
         "  update_shared_registrar_prepare - Create an unsigned ProUpSharedRegTx\n"
 #endif
+        "  shared_combine           - Combine share owner signatures into a shared masternode transaction\n"
         "  dissolve_prepare         - Create an unsigned unanimous ProDisTx\n"
         "  diff                     - Calculate a diff and a proof between two masternode lists\n"
         "  listdiff                 - Calculate a full MN list diff between two masternode lists\n",
@@ -2974,6 +2991,7 @@ void RegisterEvoRPCCommands(CRPCTable& tableRPC)
     static const CRPCCommand commands_wallet[]{
         {"evo", &protx_list},
         {"evo", &protx_info},
+        {"evo", &protx_shared_combine},
     };
     for (const auto& command : commands) {
         tableRPC.appendCommand(command.name, &command);
