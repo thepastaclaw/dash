@@ -79,10 +79,10 @@ class MasternodeSharesTest(DashTestFramework):
     def run_test(self):
         node = self.nodes[0]
 
-        self.log.info("The relay carve-out is limited to the collateral slot of a shared registration")
+        self.log.info("The relay exemption is limited to the collateral slot of a shared registration")
         # Before v24 activates, policy is the only thing keeping template outputs (which would be
-        # permanently frozen) off the network, so the carve-out must not cover a normal ProRegTx
-        # that merely carries a template output. Standardness is checked before any payload or
+        # permanently frozen) off the network, so the exemption must not cover a normal ProRegTx
+        # that merely carries a template output. Standardness is checked before any payload
         # signature validation, so the reject reason pins down the guard being tested.
         assert not softfork_active(node, "v24")
         # register_prepare only resolves the outpoint (the 1000 DASH amount is enforced by
@@ -101,7 +101,7 @@ class MasternodeSharesTest(DashTestFramework):
         reg_tx.vout.append(CTxOut(1 * COIN, CScript(bytes.fromhex(SHARED_COLLATERAL_SCRIPT))))
         res = node.testmempoolaccept([reg_tx.serialize().hex()])[0]
         assert_equal(res["allowed"], False)
-        assert_equal(res["reject-reason"], "scriptpubkey")
+        assert_equal(res["reject-reason"], "bad-shared-collateral-create")
 
         self.activate_v24()
 

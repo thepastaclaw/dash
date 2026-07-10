@@ -11,9 +11,7 @@
 #include <consensus/amount.h>
 #include <consensus/consensus.h>
 #include <consensus/validation.h>
-#include <evo/providertx.h>
 #include <evo/sharedcollateral.h>
-#include <evo/specialtx.h>
 #include <policy/feerate.h>
 #include <primitives/transaction.h>
 #include <script/interpreter.h>
@@ -111,20 +109,16 @@ bool IsStandardTx(const CTransaction& tx, bool permit_bare_multisig, const CFeeR
 
     unsigned int nDataOut = 0;
     TxoutType whichType;
-    for (uint32_t i = 0; i < tx.vout.size(); i++) {
-        const CTxOut& txout = tx.vout[i];
+    for (const CTxOut& txout : tx.vout) {
         if (!::IsStandard(txout.scriptPubKey, whichType)) {
             // The shared-collateral template is intentionally nonstandard everywhere except as
-            // the declared internal collateral output of a shared ProRegTx, mirroring the
-            // consensus rule in CheckSharedCollateralTemplateOutputs; anywhere else the output
-            // would either escape the spend covenant or freeze funds
+            // the declared internal collateral output of a shared ProRegTx. Decoding the payload
+            // here would make policy depend on evo, so this only exempts the script shape;
+            // IsStandardSpecialTx narrows the exemption to exactly the declared collateral slot
+            // by enforcing CheckSharedCollateralTemplateOutputs as policy
             if (tx.IsSpecialTxVersion() && tx.nType == TRANSACTION_PROVIDER_REGISTER &&
                 sharedcollateral::IsSharedCollateralScript(txout.scriptPubKey)) {
-                if (const auto opt_ptx = GetTxPayload<CProRegTx>(tx);
-                    opt_ptx && opt_ptx->IsShared() && opt_ptx->collateralOutpoint.hash.IsNull() &&
-                    opt_ptx->collateralOutpoint.n == i) {
-                    continue;
-                }
+                continue;
             }
             reason = "scriptpubkey";
             return false;

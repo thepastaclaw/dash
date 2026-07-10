@@ -261,10 +261,16 @@ BOOST_AUTO_TEST_CASE(shared_proregtx_serialization)
 
 BOOST_AUTO_TEST_CASE(shared_collateral_standardness)
 {
-    // The relay carve-out for the (nonstandard) shared-collateral template must mirror the
-    // consensus rule in CheckSharedCollateralTemplateOutputs: it applies only to the declared
-    // internal collateral output of a decodable shared ProRegTx. Everything else must stay
+    // Mempool policy checks IsStandardTx and IsStandardSpecialTx back to back. Together they
+    // must limit the relay exemption for the (nonstandard) shared-collateral template to the
+    // declared internal collateral output of a decodable shared ProRegTx, mirroring the
+    // consensus rule in CheckSharedCollateralTemplateOutputs. Everything else must stay
     // nonstandard, or pre-activation nodes would relay transactions that freeze funds.
+    std::string reason;
+    const auto is_standard = [&reason](const CMutableTransaction& tx) {
+        return IsStandardTx(CTransaction(tx), reason) && IsStandardSpecialTx(CTransaction(tx), reason);
+    };
+
     CKey refund_keys[2], owner_keys[2], voting_key;
     voting_key.MakeNewKey(true);
 
@@ -284,11 +290,10 @@ BOOST_AUTO_TEST_CASE(shared_collateral_standardness)
     mtx.vout.emplace_back(dmn_types::Regular.collat_amount, sharedcollateral::SharedCollateralScript());
     SetTxPayload(mtx, proTx);
 
-    std::string reason;
     // The declared internal collateral slot of a shared registration relays
-    BOOST_CHECK(IsStandardTx(CTransaction(mtx), reason));
+    BOOST_CHECK(is_standard(mtx));
 
-    // A non-special transaction paying the template is nonstandard
+    // A non-special transaction paying the template is nonstandard at the script level already
     {
         CMutableTransaction plain;
         plain.vout.emplace_back(dmn_types::Regular.collat_amount, sharedcollateral::SharedCollateralScript());
@@ -296,7 +301,7 @@ BOOST_AUTO_TEST_CASE(shared_collateral_standardness)
         BOOST_CHECK_EQUAL(reason, "scriptpubkey");
     }
 
-    // A normal (non-shared) ProRegTx gets no carve-out for a template output
+    // A normal (non-shared) ProRegTx gets no exemption for a template output
     {
         CProRegTx nonShared;
         nonShared.nVersion = ProTxVersion::MultiPayout;
@@ -305,8 +310,8 @@ BOOST_AUTO_TEST_CASE(shared_collateral_standardness)
         nonShared.collateralOutpoint = COutPoint(uint256(), 0);
         CMutableTransaction mtx2{mtx};
         SetTxPayload(mtx2, nonShared);
-        BOOST_CHECK(!IsStandardTx(CTransaction(mtx2), reason));
-        BOOST_CHECK_EQUAL(reason, "scriptpubkey");
+        BOOST_CHECK(!is_standard(mtx2));
+        BOOST_CHECK_EQUAL(reason, "bad-shared-collateral-create");
     }
 
     // The template output index must match the declared collateral index
@@ -315,26 +320,26 @@ BOOST_AUTO_TEST_CASE(shared_collateral_standardness)
         wrongIndex.collateralOutpoint.n = 1;
         CMutableTransaction mtx2{mtx};
         SetTxPayload(mtx2, wrongIndex);
-        BOOST_CHECK(!IsStandardTx(CTransaction(mtx2), reason));
-        BOOST_CHECK_EQUAL(reason, "scriptpubkey");
+        BOOST_CHECK(!is_standard(mtx2));
+        BOOST_CHECK_EQUAL(reason, "bad-shared-collateral-create");
     }
 
-    // A shared registration referencing external collateral gets no carve-out either
+    // A shared registration referencing external collateral gets no exemption either
     {
         CProRegTx external{proTx};
         external.collateralOutpoint.hash = uint256::ONE;
         CMutableTransaction mtx2{mtx};
         SetTxPayload(mtx2, external);
-        BOOST_CHECK(!IsStandardTx(CTransaction(mtx2), reason));
-        BOOST_CHECK_EQUAL(reason, "scriptpubkey");
+        BOOST_CHECK(!is_standard(mtx2));
+        BOOST_CHECK_EQUAL(reason, "bad-shared-collateral-create");
     }
 
-    // An undecodable payload gets no carve-out
+    // An undecodable payload gets no exemption
     {
         CMutableTransaction mtx2{mtx};
         mtx2.vExtraPayload = {0xde, 0xad};
-        BOOST_CHECK(!IsStandardTx(CTransaction(mtx2), reason));
-        BOOST_CHECK_EQUAL(reason, "scriptpubkey");
+        BOOST_CHECK(!is_standard(mtx2));
+        BOOST_CHECK_EQUAL(reason, "bad-shared-collateral-create");
     }
 }
 

@@ -1767,6 +1767,16 @@ bool CheckSharedCollateralTemplateOutputs(const CTransaction& tx, TxValidationSt
 
 bool IsStandardSpecialTx(const CTransaction& tx, std::string& reason)
 {
+    // The shared-collateral creation covenant only becomes consensus once v24 activates, but a
+    // template output created before that is permanently frozen, and IsStandardTx exempts the
+    // template script shape from output standardness for ProRegTx. Enforce the covenant as
+    // policy at any height so the exemption stays limited to the declared internal collateral
+    // output of a valid shared registration.
+    if (TxValidationState state; !CheckSharedCollateralTemplateOutputs(tx, state)) {
+        reason = state.GetRejectReason();
+        return false;
+    }
+
     if (!tx.IsSpecialTxVersion()) return true;
 
     if (tx.nType != TRANSACTION_ASSET_LOCK) return true;
