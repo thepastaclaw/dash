@@ -1661,7 +1661,12 @@ static RPCHelpMan protx_dissolve()
             {"submit", RPCArg::Type::BOOL, RPCArg::Default{true}, "Submit the transaction to the network."},
             {"payPenalty", RPCArg::Type::BOOL, RPCArg::DefaultHint{"determined by the current height"}, "Pay the early-period penalty. Pass true to build a standby valid at any height, false for one valid only after the early period ends."},
         },
-        RPCResult{RPCResult::Type::STR_HEX, "result", "The transaction id if submitted, otherwise the signed transaction hex"},
+        {
+            RPCResult{"if \"submit\" is not set or set to true",
+                RPCResult::Type::STR_HEX, "txid", "The transaction id"},
+            RPCResult{"if \"submit\" is set to false",
+                RPCResult::Type::STR_HEX, "hex", "The serialized signed ProDisTx in hex format, storable offline as a standby dissolution"},
+        },
         RPCExamples{HelpExampleCli("protx", "dissolve \"proTxHash\" 0")},
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
 {
@@ -1737,7 +1742,12 @@ static RPCHelpMan protx_update_share()
             {"feeSourceAddress", RPCArg::Type::STR, RPCArg::Optional::NO, "Wallet address to pay the transaction fee from."},
             {"submit", RPCArg::Type::BOOL, RPCArg::Default{true}, "Submit the transaction to the network."},
         },
-        RPCResult{RPCResult::Type::STR_HEX, "txid", "The transaction id"},
+        {
+            RPCResult{"if \"submit\" is not set or set to true",
+                RPCResult::Type::STR_HEX, "txid", "The transaction id"},
+            RPCResult{"if \"submit\" is set to false",
+                RPCResult::Type::STR_HEX, "hex", "The serialized signed ProUpShareTx in hex format"},
+        },
         RPCExamples{HelpExampleCli("protx", "update_share \"proTxHash\" 0 \"" + EXAMPLE_ADDRESS[1] + "\" \"" + EXAMPLE_ADDRESS[0] + "\"")},
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
 {
@@ -1891,7 +1901,12 @@ static RPCHelpMan protx_shared_combine()
             }},
             {"submit", RPCArg::Type::BOOL, RPCArg::Default{false}, "Submit the transaction to the network (not available for registrations, whose funding inputs still need signing)."},
         },
-        RPCResult{RPCResult::Type::STR_HEX, "result", "The transaction id if submitted, otherwise the combined transaction hex"},
+        {
+            RPCResult{"if \"submit\" is set to true",
+                RPCResult::Type::STR_HEX, "txid", "The transaction id"},
+            RPCResult{"if \"submit\" is not set or set to false",
+                RPCResult::Type::STR_HEX, "hex", "The serialized combined transaction in hex format"},
+        },
         RPCExamples{HelpExampleCli("protx", "shared_combine \"tx\" \"[{\\\"shareIndex\\\":0,\\\"signature\\\":\\\"...\\\"}]\"")},
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
 {
