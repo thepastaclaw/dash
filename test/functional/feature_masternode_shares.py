@@ -6,6 +6,7 @@
 
 from decimal import Decimal
 
+from test_framework.blocktools import TIME_GENESIS_BLOCK
 from test_framework.messages import COIN, CTxOut, tx_from_hex
 from test_framework.script import CScript
 from test_framework.test_framework import DashTestFramework, p2p_port
@@ -29,8 +30,12 @@ class MasternodeSharesTest(DashTestFramework):
         self.add_wallet_options(parser)
 
     def set_test_params(self):
+        # Delay the v24 start time past framework setup and the pre-activation relay checks
+        # (which advance mocktime from the genesis time by well under 1200s) so run_test
+        # begins with the fork inactive and can exercise pre-activation relay policy;
+        # activate_v24 then bumps mocktime until the fork activates as usual
         self.set_dash_test_params(1, 0, extra_args=[[
-            f"-vbparams=v24:{self.mocktime}:999999999999:{V24_ACTIVATION_THRESHOLD}:10:8:6:5:0",
+            f"-vbparams=v24:{TIME_GENESIS_BLOCK + 1200}:999999999999:{V24_ACTIVATION_THRESHOLD}:10:8:6:5:0",
         ]])
 
     def activate_v24(self):
@@ -90,6 +95,9 @@ class MasternodeSharesTest(DashTestFramework):
         collateral_addr, fee_addr = node.getnewaddress(), node.getnewaddress()
         collateral_txid = node.sendtoaddress(collateral_addr, 1)
         node.sendtoaddress(fee_addr, 1)
+        # without masternodes there are no InstantSend locks, so age the transactions past the
+        # miner's lock-wait timeout to get them mined
+        self.bump_mocktime(10 * 60 + 1)
         self.generate(node, 1, sync_fun=self.no_op)
         collateral_vout = next(i for i, out in enumerate(node.getrawtransaction(collateral_txid, 1)["vout"])
                                if out["value"] == 1)
@@ -99,6 +107,7 @@ class MasternodeSharesTest(DashTestFramework):
                               node.getnewaddress(), fee_addr)
         reg_tx = tx_from_hex(prepared["tx"])
         reg_tx.vout.append(CTxOut(1 * COIN, CScript(bytes.fromhex(SHARED_COLLATERAL_SCRIPT))))
+        assert not softfork_active(node, "v24")
         res = node.testmempoolaccept([reg_tx.serialize().hex()])[0]
         assert_equal(res["allowed"], False)
         assert_equal(res["reject-reason"], "bad-shared-collateral-create")
