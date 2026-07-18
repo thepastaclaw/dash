@@ -1107,8 +1107,11 @@ static UniValue protx_update_service_common_wrapper(const JSONRPCRequest& reques
                                                                               return chainman.ActiveChain().Tip()),
                                                                     chainman);
 
-    // Legacy masternodes must upgrade to BasicBLS before using higher versions.
-    // Clamp to BasicBLS to avoid "bad-protx-version-upgrade" validation failure.
+    // A legacy masternode migrates to the basic scheme via a BasicBLS service update: raising the
+    // version re-encodes its stored operator key in place (see SetStateVersion), so no key rotation
+    // is needed. Clamp to BasicBLS -- a legacy masternode cannot migrate straight to a higher
+    // version, and the v2 payload signs and verifies under the basic scheme (the signing scheme below
+    // follows nVersion, matching post-v19 verification).
     if (dmn->pdmnState->nVersion == ProTxVersion::LegacyBLS && ptx.nVersion > ProTxVersion::BasicBLS) {
         ptx.nVersion = ProTxVersion::BasicBLS;
     }
@@ -1241,10 +1244,6 @@ static RPCHelpMan protx_update_registrar_wrapper(const bool specific_legacy_bls_
     if (!dmn) {
         throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("masternode %s not found", ptx.proTxHash.ToString()));
     }
-    if (dmn->pdmnState->nVersion == ProTxVersion::LegacyBLS && ptx.nVersion > ProTxVersion::BasicBLS) {
-        ptx.nVersion = ProTxVersion::BasicBLS;
-    }
-
     ptx.keyIDVoting = dmn->pdmnState->keyIDVoting;
     ptx.scriptPayout = dmn->pdmnState->scriptPayout;
     ptx.payouts = GetOwnerPayouts(dmn->pdmnState->nVersion, dmn->pdmnState->scriptPayout, dmn->pdmnState->payouts);
@@ -1255,6 +1254,23 @@ static RPCHelpMan protx_update_registrar_wrapper(const bool specific_legacy_bls_
     } else {
         // same pubkey, reuse as is
         ptx.pubKeyOperator = dmn->pdmnState->pubKeyOperator;
+    }
+
+    // A legacy masternode migrates to the basic scheme via a registrar update, keeping its operator
+    // key (migration) or supplying a new one (rotation) -- both land at BasicBLS. Re-encode the key
+    // to match so the stored key stays consistent with its version (and the assertion below holds).
+    // The legacy-BLS RPC variant keeps the masternode on the legacy scheme. This sits after the key
+    // is resolved because the key must be re-encoded here. Basic masternodes are untouched.
+    if (dmn->pdmnState->nVersion == ProTxVersion::LegacyBLS) {
+        if (use_legacy) {
+            ptx.nVersion = ProTxVersion::LegacyBLS;
+        } else {
+            ptx.nVersion = ProTxVersion::BasicBLS;
+            if (ptx.pubKeyOperator != CBLSLazyPublicKey()) {
+                const CBLSPublicKey& pubkey{ptx.pubKeyOperator.Get()};
+                ptx.pubKeyOperator.Set(pubkey, /*specificLegacyScheme=*/false);
+            }
+        }
     }
 
     CHECK_NONFATAL(ptx.pubKeyOperator.IsLegacy() == (ptx.nVersion == ProTxVersion::LegacyBLS));
