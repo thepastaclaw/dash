@@ -19,7 +19,8 @@ from test_framework.test_framework import (
     MasternodeInfo,
 )
 from test_framework.util import (
-    assert_equal
+    assert_equal,
+    softfork_active,
 )
 
 
@@ -52,6 +53,9 @@ class DIP3V19Test(DashTestFramework):
         self.extra_args = [[
             '-deprecatedrpc=legacy_mn',
             '-testactivationheight=v19@200',
+            # Wide enough a window that v24 does not activate on its own during the body of this
+            # test; it is activated explicitly at the end.
+            f'-vbparams=v24:{self.mocktime}:999999999999:450:10:8:6:5:0',
         ]] * 6
         self.set_dash_test_params(6, 5, evo_count=2, extra_args=self.extra_args)
 
@@ -73,6 +77,11 @@ class DIP3V19Test(DashTestFramework):
 
         extra_legacy_mn: MasternodeInfo = self.dynamically_add_masternode()
         assert extra_legacy_mn is not None
+
+        # A second legacy-scheme masternode, never revoked, so it still has a usable operator key
+        # once v24 activates. extra_legacy_mn is revoked below, which nulls its operator key.
+        surviving_legacy_mn: MasternodeInfo = self.dynamically_add_masternode()
+        assert surviving_legacy_mn is not None
 
         mn_list_before = self.nodes[0].masternodelist()
         pubkeyoperator_list_before = set([mn_list_before[e]["pubkeyoperator"] for e in mn_list_before])
@@ -129,6 +138,42 @@ class DIP3V19Test(DashTestFramework):
             assert prev_quorum != quorum
 
         self.wait_for_chainlocked_block_all_nodes(self.nodes[0].getbestblockhash())
+
+        self.test_legacy_update_service_after_v24(surviving_legacy_mn)
+
+    def test_legacy_update_service_after_v24(self, legacy_mn: MasternodeInfo):
+        # After v24 a legacy masternode migrates to the basic scheme in place, keeping the same
+        # operator key: a BasicBLS service update re-encodes the stored key (SetStateVersion) and
+        # re-keys the unique-property map. No key rotation is forced.
+        self.log.info("post-v24: update_service migrates a legacy masternode to the basic scheme")
+        assert not softfork_active(self.nodes[0], 'v24')
+        self.activate_by_name('v24', slow_mode=False)
+        assert softfork_active(self.nodes[0], 'v24')
+
+        node = self.nodes[0]
+        assert_equal(node.protx('info', legacy_mn.proTxHash)['state']['version'], 1)
+        key_before = node.protx('info', legacy_mn.proTxHash)['state']['pubKeyOperator']
+        node.sendtoaddress(legacy_mn.fundsAddr, 1)
+        self.bump_mocktime(10 * 60 + 1)  # make the funding tx safe to include in a block
+        self.generate(node, 1)
+        upserv_hash = legacy_mn.update_service(node, submit=True,
+                                               addrs_core_p2p=[f'127.0.0.1:{legacy_mn.nodePort}'])
+        self.bump_mocktime(10 * 60 + 1)
+        tip = self.generate(node, 1)[0]
+        assert_equal(node.getrawtransaction(upserv_hash, 1, tip)['proUpServTx']['version'], 2)
+        state = node.protx('info', legacy_mn.proTxHash)['state']
+        assert_equal(state['version'], 2)  # migrated in place
+        # Same operator key, re-encoded to the basic scheme (different hex, but not a rotation: the
+        # masternode is not PoSe-banned).
+        assert state['pubKeyOperator'] != key_before
+        assert_equal(state['PoSeBanHeight'], -1)
+
+        # The list reloads from disk identically after the migration.
+        list_before = self.nodes[1].masternodelist()
+        self.restart_node(1, extra_args=self.extra_args[1])
+        self.connect_nodes(0, 1)
+        self.connect_nodes(1, 2)
+        assert_equal(self.nodes[1].masternodelist(), list_before)
 
     def test_revoke_protx(self, node_idx, revoke_mn: MasternodeInfo):
         funds_address = self.nodes[0].getnewaddress()
