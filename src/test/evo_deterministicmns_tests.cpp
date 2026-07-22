@@ -1599,7 +1599,6 @@ void FuncMigrationRejectedWhenKeySquatted(TestChainV24SignalBeforeV19Setup& setu
 {
     auto& chainman = setup.chainman;
     auto& dmnman = setup.dmnman;
-    auto tip_index    = [&] { return setup.Tip(); };
 
     BOOST_REQUIRE(bls::bls_legacy_scheme.load());
     auto& utxos = setup.utxos;
@@ -1614,7 +1613,7 @@ void FuncMigrationRejectedWhenKeySquatted(TestChainV24SignalBeforeV19Setup& setu
 
     // Reach v19, register squatter B holding K basic-encoded (accepted pre-v24), then activate v24.
     setup.MineToV19();
-    BOOST_REQUIRE(!DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
+    BOOST_REQUIRE(!DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
 
     CKey owner_key_b;
     owner_key_b.MakeNewKey(true);
@@ -1641,7 +1640,7 @@ void FuncMigrationRejectedWhenKeySquatted(TestChainV24SignalBeforeV19Setup& setu
     BOOST_REQUIRE(dmnman.GetListAtChainTip().GetMN(tx_reg_b.GetHash()));
 
     setup.MineToV24();
-    BOOST_REQUIRE(DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
+    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
     BOOST_REQUIRE_EQUAL(dmnman.GetListAtChainTip().GetMN(proTxHashA)->pdmnState->nVersion, ProTxVersion::LegacyBLS);
 
     // (a) A's service-update migration is rejected cleanly.
@@ -1695,7 +1694,6 @@ void FuncProUpServTxMigratesLegacy(TestChainV24SignalBeforeV19Setup& setup)
 {
     auto& chainman = setup.chainman;
     auto& dmnman = setup.dmnman;
-    auto tip_index    = [&] { return setup.Tip(); };
 
     BOOST_REQUIRE(bls::bls_legacy_scheme.load());
     auto& utxos = setup.utxos;
@@ -1708,7 +1706,7 @@ void FuncProUpServTxMigratesLegacy(TestChainV24SignalBeforeV19Setup& setup)
     BOOST_REQUIRE_EQUAL(dmnman.GetListAtChainTip().GetMN(proTxHash)->pdmnState->nVersion, ProTxVersion::LegacyBLS);
 
     setup.MineToV24();
-    BOOST_REQUIRE(DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
+    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
 
     // A BasicBLS service update migrates a legacy masternode in place: it keeps the same operator
     // key (re-encoded to the basic scheme), raises the version, and is NOT PoSe-banned -- no key
@@ -1807,7 +1805,6 @@ void FuncSameMnSameBlockVersionCrossingKeyRotation(TestChainV24SignalBeforeV19Se
 {
     auto& chainman = setup.chainman;
     auto& dmnman = setup.dmnman;
-    auto tip_index    = [&] { return setup.Tip(); };
 
     BOOST_REQUIRE(bls::bls_legacy_scheme.load());
     auto& utxos = setup.utxos;
@@ -1819,7 +1816,7 @@ void FuncSameMnSameBlockVersionCrossingKeyRotation(TestChainV24SignalBeforeV19Se
     setup.ProcessBlock({tx_reg});
 
     setup.MineToV24();
-    BOOST_REQUIRE(DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
+    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
     BOOST_REQUIRE_EQUAL(dmnman.GetListAtChainTip().GetMN(proTxHash)->pdmnState->nVersion, ProTxVersion::LegacyBLS);
 
     CBLSSecretKey key1, key2;
@@ -1910,7 +1907,6 @@ void FuncSameMnSameBlockMigrationConsistent(TestChainV24SignalBeforeV19Setup& se
 {
     auto& chainman = setup.chainman;
     auto& dmnman = setup.dmnman;
-    auto tip_index    = [&] { return setup.Tip(); };
 
     BOOST_REQUIRE(bls::bls_legacy_scheme.load());
     auto& utxos = setup.utxos;
@@ -1922,7 +1918,7 @@ void FuncSameMnSameBlockMigrationConsistent(TestChainV24SignalBeforeV19Setup& se
     setup.ProcessBlock({tx_reg});
 
     setup.MineToV24();
-    BOOST_REQUIRE(DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
+    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
     BOOST_REQUIRE_EQUAL(dmnman.GetListAtChainTip().GetMN(proTxHash)->pdmnState->nVersion, ProTxVersion::LegacyBLS);
 
     // Both rotate to the SAME new key, one legacy-encoded at v1, one basic-encoded at v2.
@@ -1984,7 +1980,6 @@ void FuncPreV24CrossSchemePairCannotBecomeResident(TestChainV24SignalBeforeV19Se
 {
     auto& chainman = setup.chainman;
     auto& dmnman = setup.dmnman;
-    auto tip_index    = [&] { return setup.Tip(); };
     const auto& coinbase_pk = setup.coinbase_pk;
 
     BOOST_REQUIRE(bls::bls_legacy_scheme.load());
@@ -1999,7 +1994,7 @@ void FuncPreV24CrossSchemePairCannotBecomeResident(TestChainV24SignalBeforeV19Se
 
     // Reach v19 but stop short of v24: this is where the pair gets admitted.
     setup.MineToV19();
-    BOOST_REQUIRE(!DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
+    BOOST_REQUIRE(!DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
 
     CKey owner_key_b;
     owner_key_b.MakeNewKey(true);
@@ -2052,7 +2047,7 @@ void FuncPreV24CrossSchemePairCannotBecomeResident(TestChainV24SignalBeforeV19Se
 
     // Activate v24 with the surviving transaction still resident.
     setup.MineToV24();
-    BOOST_REQUIRE(DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
+    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
 
     // tx_a is the valid, non-conflicting claim: it must still be resident, not evicted at activation.
     auto& mempool = *Assert(setup.m_node.mempool.get());
@@ -2078,7 +2073,6 @@ void FuncSameBlockCrossSchemeKeyPairRejected(TestChainV24SignalBeforeV19Setup& s
 {
     auto& chainman = setup.chainman;
     auto& dmnman = setup.dmnman;
-    auto tip_index    = [&] { return setup.Tip(); };
 
     BOOST_REQUIRE(bls::bls_legacy_scheme.load());
     auto& utxos = setup.utxos;
@@ -2091,7 +2085,7 @@ void FuncSameBlockCrossSchemeKeyPairRejected(TestChainV24SignalBeforeV19Setup& s
     setup.ProcessBlock({tx_reg_a});
 
     setup.MineToV24();
-    BOOST_REQUIRE(DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
+    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
     BOOST_REQUIRE_EQUAL(dmnman.GetListAtChainTip().GetMN(proTxHashA)->pdmnState->nVersion, ProTxVersion::LegacyBLS);
 
     CKey owner_key_b;
@@ -2172,7 +2166,6 @@ void FuncMempoolRejectsCrossSchemeKeyRace(TestChainV24SignalBeforeV19Setup& setu
 {
     auto& chainman = setup.chainman;
     auto& dmnman = setup.dmnman;
-    auto tip_index    = [&] { return setup.Tip(); };
 
     BOOST_REQUIRE(bls::bls_legacy_scheme.load());
     auto& utxos = setup.utxos;
@@ -2186,7 +2179,7 @@ void FuncMempoolRejectsCrossSchemeKeyRace(TestChainV24SignalBeforeV19Setup& setu
     setup.ProcessBlock({tx_reg_a});
 
     setup.MineToV24();
-    BOOST_REQUIRE(DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
+    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
     BOOST_REQUIRE_EQUAL(dmnman.GetListAtChainTip().GetMN(proTxHashA)->pdmnState->nVersion, ProTxVersion::LegacyBLS);
 
     CKey owner_key_b;
@@ -2259,7 +2252,6 @@ void FuncProUpRegTxRejectsCrossSchemeKeyReuse(TestChainV24SignalBeforeV19Setup& 
 {
     auto& chainman = setup.chainman;
     auto& dmnman = setup.dmnman;
-    auto tip_index    = [&] { return setup.Tip(); };
 
     BOOST_REQUIRE(bls::bls_legacy_scheme.load());
     auto& utxos = setup.utxos;
@@ -2273,7 +2265,7 @@ void FuncProUpRegTxRejectsCrossSchemeKeyReuse(TestChainV24SignalBeforeV19Setup& 
     setup.ProcessBlock({tx_reg_a});
 
     setup.MineToV24();
-    BOOST_REQUIRE(DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
+    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
     BOOST_REQUIRE(!bls::bls_legacy_scheme.load());
     BOOST_REQUIRE_EQUAL(dmnman.GetListAtChainTip().GetMN(proTxHashA)->pdmnState->nVersion, ProTxVersion::LegacyBLS);
 
@@ -2347,7 +2339,6 @@ void FuncProRegTxRejectsCrossSchemeKeyReuse(TestChainV24SignalBeforeV19Setup& se
 {
     auto& chainman = setup.chainman;
     auto& dmnman = setup.dmnman;
-    auto tip_index    = [&] { return setup.Tip(); };
 
     BOOST_REQUIRE(bls::bls_legacy_scheme.load());
     auto& utxos = setup.utxos;
@@ -2390,7 +2381,7 @@ void FuncProRegTxRejectsCrossSchemeKeyReuse(TestChainV24SignalBeforeV19Setup& se
     };
 
     setup.MineToV19();
-    BOOST_REQUIRE(!DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
+    BOOST_REQUIRE(!DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
 
     // Non-retroactivity: before v24 the squat is still accepted, exactly as on develop today.
     {
@@ -2401,7 +2392,7 @@ void FuncProRegTxRejectsCrossSchemeKeyReuse(TestChainV24SignalBeforeV19Setup& se
     }
 
     setup.MineToV24();
-    BOOST_REQUIRE(DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
+    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
 
     // The main post-v24 vector: reuse the legacy masternode's key, basic-encoded.
     {
@@ -2548,7 +2539,6 @@ void FuncStaleSpecialTxDoesNotPoisonTemplate(TestChainV24SignalBeforeV19Setup& s
 {
     auto& chainman = setup.chainman;
     auto& dmnman = setup.dmnman;
-    auto tip_index    = [&] { return setup.Tip(); };
     const auto& coinbase_pk = setup.coinbase_pk;
 
     BOOST_REQUIRE(bls::bls_legacy_scheme.load());
@@ -2561,7 +2551,7 @@ void FuncStaleSpecialTxDoesNotPoisonTemplate(TestChainV24SignalBeforeV19Setup& s
     setup.ProcessBlock({tx_reg});
 
     setup.MineToV24();
-    BOOST_REQUIRE(DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
+    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
     BOOST_REQUIRE_EQUAL(dmnman.GetListAtChainTip().GetMN(proTxHash)->pdmnState->nVersion, ProTxVersion::LegacyBLS);
 
     // A cross-scheme squatter ProRegTx: it reuses the legacy masternode's operator key basic-encoded.
@@ -2621,7 +2611,6 @@ void FuncProUpRegTxMigratesLegacySameKey(TestChainV24SignalBeforeV19Setup& setup
 {
     auto& chainman = setup.chainman;
     auto& dmnman = setup.dmnman;
-    auto tip_index    = [&] { return setup.Tip(); };
 
     BOOST_REQUIRE(bls::bls_legacy_scheme.load());
     auto& utxos = setup.utxos;
@@ -2633,7 +2622,7 @@ void FuncProUpRegTxMigratesLegacySameKey(TestChainV24SignalBeforeV19Setup& setup
     setup.ProcessBlock({tx_reg});
 
     setup.MineToV24();
-    BOOST_REQUIRE(DeploymentActiveAfter(tip_index(), chainman, Consensus::DEPLOYMENT_V24));
+    BOOST_REQUIRE(DeploymentActiveAfter(setup.Tip(), chainman, Consensus::DEPLOYMENT_V24));
     BOOST_REQUIRE_EQUAL(dmnman.GetListAtChainTip().GetMN(proTxHash)->pdmnState->nVersion, ProTxVersion::LegacyBLS);
 
     auto build_upreg = [&](const CBLSPublicKey& op_pubkey, uint16_t version) {
