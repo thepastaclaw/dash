@@ -6,21 +6,29 @@
 
 #include <coinjoin/client.h>
 #include <coinjoin/coinjoin.h>
-#include <coinjoin/walletman.h>
 #include <coinjoin/options.h>
 #include <coinjoin/util.h>
+#include <coinjoin/walletman.h>
 #include <consensus/amount.h>
 #include <interfaces/coinjoin.h>
+#include <net.h>
 #include <node/context.h>
+#include <policy/settings.h>
+#include <protocol.h>
+#include <streams.h>
 #include <util/system.h>
 #include <util/translation.h>
-#include <policy/settings.h>
 #include <validation.h>
 #include <wallet/context.h>
 #include <wallet/spend.h>
 #include <wallet/wallet.h>
 
 #include <boost/test/unit_test.hpp>
+
+#include <atomic>
+#include <chrono>
+#include <future>
+#include <thread>
 
 namespace wallet {
 BOOST_FIXTURE_TEST_SUITE(coinjoin_tests, BasicTestingSetup)
@@ -234,6 +242,62 @@ BOOST_FIXTURE_TEST_CASE(coinjoin_manager_start_stop_tests, CTransactionBuilderTe
         cj_man.stopMixing();
         BOOST_CHECK_EQUAL(cj_man.isMixing(), false);
     }));
+}
+
+BOOST_FIXTURE_TEST_CASE(coinjoin_completion_waits_for_wallet_callbacks, CTransactionBuilderTestSetup)
+{
+    std::promise<void> unblock_queue;
+    const std::shared_future<void> unblock_future{unblock_queue.get_future()};
+    std::promise<void> queue_blocked;
+    auto queue_blocked_future{queue_blocked.get_future()};
+    CallFunctionInValidationInterfaceQueue([&queue_blocked, unblock_future] {
+        queue_blocked.set_value();
+        unblock_future.wait();
+    });
+    queue_blocked_future.wait();
+
+    std::atomic<bool> preceding_callback_processed{false};
+    CallFunctionInValidationInterfaceQueue([&preceding_callback_processed] { preceding_callback_processed = true; });
+
+    in_addr peer_in_addr{};
+    peer_in_addr.s_addr = htonl(0x7f000001);
+    CNode peer{/*id=*/0,
+               /*sock=*/nullptr,
+               /*addrIn=*/CAddress{CService{peer_in_addr, 8333}, NODE_NETWORK},
+               /*nKeyedNetGroupIn=*/0,
+               /*nLocalHostNonceIn=*/0,
+               /*addrBindIn=*/CAddress{},
+               /*addrNameIn=*/std::string{},
+               /*conn_type_in=*/ConnectionType::INBOUND,
+               /*inbound_onion=*/false};
+    peer.nVersion = PROTOCOL_VERSION;
+    peer.SetCommonVersion(PROTOCOL_VERSION);
+
+    std::promise<void> processing_started;
+    auto processing_started_future{processing_started.get_future()};
+    std::promise<void> processing_done;
+    auto processing_done_future{processing_done.get_future()};
+    std::exception_ptr processing_error;
+    std::thread processing_thread{[&] {
+        processing_started.set_value();
+        try {
+            CDataStream stream{SER_NETWORK, PROTOCOL_VERSION};
+            m_node.cj_walletman->processMessage(peer, m_node.chainman->ActiveChainstate(), *m_node.connman,
+                                                *m_node.mempool, NetMsgType::DSCOMPLETE, stream);
+        } catch (...) {
+            processing_error = std::current_exception();
+        }
+        processing_done.set_value();
+    }};
+
+    processing_started_future.wait();
+    BOOST_CHECK(processing_done_future.wait_for(std::chrono::milliseconds{100}) == std::future_status::timeout);
+    unblock_queue.set_value();
+    BOOST_REQUIRE(processing_done_future.wait_for(std::chrono::seconds{5}) == std::future_status::ready);
+    processing_thread.join();
+    SyncWithValidationInterfaceQueue();
+    if (processing_error) std::rethrow_exception(processing_error);
+    BOOST_CHECK(preceding_callback_processed);
 }
 
 // End-to-end check that NewKeyPool() stops mixing
