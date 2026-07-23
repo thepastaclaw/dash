@@ -271,7 +271,8 @@ BOOST_FIXTURE_TEST_CASE(coinjoin_completion_waits_for_wallet_callbacks, CTransac
         std::exception_ptr error;
     };
 
-    auto process_completion = [&](CNode& peer, int session_id, bool expect_barrier) {
+    auto process_completion = [&](CNode& peer, int session_id, bool expect_barrier,
+                                  bool enable_coinjoin_before_unblock = false) {
         ProcessingResult result;
         std::promise<void> unblock_queue;
         const std::shared_future<void> unblock_future{unblock_queue.get_future()};
@@ -341,6 +342,7 @@ BOOST_FIXTURE_TEST_CASE(coinjoin_completion_waits_for_wallet_callbacks, CTransac
                                               std::future_status::ready;
         }
         result.callback_processed_before_unblock = preceding_callback_processed;
+        if (enable_coinjoin_before_unblock) CCoinJoinClientOptions::SetEnabled(true);
         cleanup.Unblock();
         result.completed_after_unblock = processing_done_future.wait_for(std::chrono::seconds{5}) ==
                                          std::future_status::ready;
@@ -426,7 +428,9 @@ BOOST_FIXTURE_TEST_CASE(coinjoin_completion_waits_for_wallet_callbacks, CTransac
     BOOST_CHECK(wrong_session_result.callback_processed_after_unblock);
     check_processing_error(wrong_session_result.error);
 
-    const auto completion_result{process_completion(*expected_peer, session_id, /*expect_barrier=*/true)};
+    CCoinJoinClientOptions::SetEnabled(false);
+    const auto completion_result{process_completion(*expected_peer, session_id, /*expect_barrier=*/true,
+                                                    /*enable_coinjoin_before_unblock=*/true)};
     BOOST_CHECK(completion_result.queue_blocked);
     BOOST_CHECK(completion_result.processing_started);
     BOOST_CHECK(completion_result.barrier_enqueued);
@@ -435,6 +439,11 @@ BOOST_FIXTURE_TEST_CASE(coinjoin_completion_waits_for_wallet_callbacks, CTransac
     BOOST_CHECK(completion_result.completed_after_unblock);
     BOOST_CHECK(completion_result.callback_processed_after_unblock);
     check_processing_error(completion_result.error);
+    bool completion_still_expected{true};
+    BOOST_REQUIRE(m_node.cj_walletman->doForClient("", [&](const auto& clientman) {
+        completion_still_expected = clientman.IsExpectedCompletion(*expected_peer, session_id);
+    }));
+    BOOST_CHECK(!completion_still_expected);
 }
 
 // End-to-end check that NewKeyPool() stops mixing

@@ -91,8 +91,6 @@ CCoinJoinClientSession::CCoinJoinClientSession(const std::shared_ptr<CWallet>& w
 
 bool CCoinJoinClientManager::IsExpectedCompletion(const CNode& peer, int session_id) const
 {
-    if (!CCoinJoinClientOptions::IsEnabled() || !m_mn_sync.IsBlockchainSynced()) return false;
-
     AssertLockNotHeld(cs_deqsessions);
     LOCK(cs_deqsessions);
     return std::ranges::any_of(deqSessions,
