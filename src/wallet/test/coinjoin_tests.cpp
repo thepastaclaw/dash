@@ -10,7 +10,9 @@
 #include <coinjoin/util.h>
 #include <coinjoin/walletman.h>
 #include <consensus/amount.h>
+#include <evo/deterministicmns.h>
 #include <interfaces/coinjoin.h>
+#include <masternode/sync.h>
 #include <net.h>
 #include <node/context.h>
 #include <policy/settings.h>
@@ -29,6 +31,17 @@
 #include <chrono>
 #include <future>
 #include <thread>
+
+struct CoinJoinClientManagerTest {
+    static void AddSession(CCoinJoinClientManager& clientman, CDeterministicMNCPtr dmn, int session_id)
+    {
+        LOCK(clientman.cs_deqsessions);
+        auto& session{clientman.deqSessions.emplace_back(clientman.m_wallet, clientman, clientman.m_dmnman,
+                                                         clientman.m_mn_metaman, clientman.m_mn_sync, clientman.m_isman)};
+        session.mixingMasternode = std::move(dmn);
+        session.nSessionID = session_id;
+    }
+};
 
 namespace wallet {
 BOOST_FIXTURE_TEST_SUITE(coinjoin_tests, BasicTestingSetup)
@@ -256,7 +269,7 @@ BOOST_FIXTURE_TEST_CASE(coinjoin_completion_waits_for_wallet_callbacks, CTransac
         std::exception_ptr error;
     };
 
-    auto process_completion = [&](CNode& peer) {
+    auto process_completion = [&](CNode& peer, int session_id) {
         ProcessingResult result;
         std::promise<void> unblock_queue;
         const std::shared_future<void> unblock_future{unblock_queue.get_future()};
@@ -283,6 +296,7 @@ BOOST_FIXTURE_TEST_CASE(coinjoin_completion_waits_for_wallet_callbacks, CTransac
             processing_started.set_value();
             try {
                 CDataStream stream{SER_NETWORK, PROTOCOL_VERSION};
+                stream << session_id << MSG_SUCCESS;
                 m_node.cj_walletman->processMessage(peer, m_node.chainman->ActiveChainstate(), *m_node.connman,
                                                     *m_node.mempool, NetMsgType::DSCOMPLETE, stream);
             } catch (...) {
@@ -335,31 +349,72 @@ BOOST_FIXTURE_TEST_CASE(coinjoin_completion_waits_for_wallet_callbacks, CTransac
         }
     };
 
-    in_addr peer_in_addr{};
-    peer_in_addr.s_addr = htonl(0x7f000001);
-    CNode peer{/*id=*/0,
-               /*sock=*/nullptr,
-               /*addrIn=*/CAddress{CService{peer_in_addr, 8333}, NODE_NETWORK},
-               /*nKeyedNetGroupIn=*/0,
-               /*nLocalHostNonceIn=*/0,
-               /*addrBindIn=*/CAddress{},
-               /*addrNameIn=*/std::string{},
-               /*conn_type_in=*/ConnectionType::INBOUND,
-               /*inbound_onion=*/false};
-    peer.nVersion = PROTOCOL_VERSION;
-    peer.SetCommonVersion(PROTOCOL_VERSION);
+    struct OptionsCleanup {
+        const bool enabled{CCoinJoinClientOptions::IsEnabled()};
+        ~OptionsCleanup() { CCoinJoinClientOptions::SetEnabled(enabled); }
+    } options_cleanup;
+    CCoinJoinClientOptions::SetEnabled(true);
+    struct MasternodeSyncCleanup {
+        CMasternodeSync& sync;
+        const bool was_synced{sync.IsBlockchainSynced()};
+        ~MasternodeSyncCleanup()
+        {
+            if (!was_synced) sync.Reset(/*fForce=*/true, /*fNotifyReset=*/false);
+        }
+    } masternode_sync_cleanup{*m_node.mn_sync};
+    if (!m_node.mn_sync->IsBlockchainSynced()) m_node.mn_sync->SwitchToNextAsset();
 
-    const auto unsolicited_result{process_completion(peer)};
-    BOOST_CHECK(unsolicited_result.queue_blocked);
-    BOOST_CHECK(unsolicited_result.processing_started);
-    BOOST_CHECK(unsolicited_result.completed_before_unblock);
-    BOOST_CHECK(!unsolicited_result.callback_processed_before_unblock);
-    BOOST_CHECK(unsolicited_result.completed_after_unblock);
-    BOOST_CHECK(unsolicited_result.callback_processed_after_unblock);
-    check_processing_error(unsolicited_result.error);
+    auto make_peer = [](uint32_t address) {
+        in_addr peer_in_addr{};
+        peer_in_addr.s_addr = htonl(address);
+        auto peer{std::make_unique<CNode>(/*id=*/0,
+                                          /*sock=*/nullptr,
+                                          /*addrIn=*/CAddress{CService{peer_in_addr, 8333}, NODE_NETWORK},
+                                          /*nKeyedNetGroupIn=*/0,
+                                          /*nLocalHostNonceIn=*/0,
+                                          /*addrBindIn=*/CAddress{},
+                                          /*addrNameIn=*/std::string{},
+                                          /*conn_type_in=*/ConnectionType::INBOUND,
+                                          /*inbound_onion=*/false)};
+        peer->nVersion = PROTOCOL_VERSION;
+        peer->SetCommonVersion(PROTOCOL_VERSION);
+        return peer;
+    };
 
-    peer.m_masternode_connection = true;
-    const auto completion_result{process_completion(peer)};
+    constexpr int session_id{1};
+    auto dmn_state{std::make_shared<CDeterministicMNState>()};
+    dmn_state->netInfo = NetInfoInterface::MakeNetInfo(
+        ProTxVersion::GetMax(/*is_basic_scheme_active=*/true, /*is_extended_addr=*/false));
+    BOOST_REQUIRE_EQUAL(dmn_state->netInfo->AddEntry(NetInfoPurpose::CORE_P2P, "127.0.0.1:8333"), NetInfoStatus::Success);
+    auto dmn{std::make_shared<CDeterministicMN>(/*internalId=*/0)};
+    dmn->pdmnState = dmn_state;
+    BOOST_REQUIRE(m_node.cj_walletman->doForClient("", [&](auto& clientman) {
+        CoinJoinClientManagerTest::AddSession(clientman, dmn, session_id);
+    }));
+
+    auto expected_peer{make_peer(0x7f000001)};
+    auto unrelated_peer{make_peer(0x7f000002)};
+    unrelated_peer->m_masternode_connection = true;
+
+    const auto unrelated_result{process_completion(*unrelated_peer, session_id)};
+    BOOST_CHECK(unrelated_result.queue_blocked);
+    BOOST_CHECK(unrelated_result.processing_started);
+    BOOST_CHECK(unrelated_result.completed_before_unblock);
+    BOOST_CHECK(!unrelated_result.callback_processed_before_unblock);
+    BOOST_CHECK(unrelated_result.completed_after_unblock);
+    BOOST_CHECK(unrelated_result.callback_processed_after_unblock);
+    check_processing_error(unrelated_result.error);
+
+    const auto wrong_session_result{process_completion(*expected_peer, session_id + 1)};
+    BOOST_CHECK(wrong_session_result.queue_blocked);
+    BOOST_CHECK(wrong_session_result.processing_started);
+    BOOST_CHECK(wrong_session_result.completed_before_unblock);
+    BOOST_CHECK(!wrong_session_result.callback_processed_before_unblock);
+    BOOST_CHECK(wrong_session_result.completed_after_unblock);
+    BOOST_CHECK(wrong_session_result.callback_processed_after_unblock);
+    check_processing_error(wrong_session_result.error);
+
+    const auto completion_result{process_completion(*expected_peer, session_id)};
     BOOST_CHECK(completion_result.queue_blocked);
     BOOST_CHECK(completion_result.processing_started);
     BOOST_CHECK(!completion_result.completed_before_unblock);

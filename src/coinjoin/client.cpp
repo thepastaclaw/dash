@@ -89,6 +89,22 @@ CCoinJoinClientSession::CCoinJoinClientSession(const std::shared_ptr<CWallet>& w
     m_isman{isman}
 {}
 
+bool CCoinJoinClientManager::IsExpectedCompletion(const CNode& peer, int session_id) const
+{
+    if (!CCoinJoinClientOptions::IsEnabled() || !m_mn_sync.IsBlockchainSynced()) return false;
+
+    AssertLockNotHeld(cs_deqsessions);
+    LOCK(cs_deqsessions);
+    return std::ranges::any_of(deqSessions,
+                               [&](const auto& session) { return session.IsExpectedCompletion(peer, session_id); });
+}
+
+bool CCoinJoinClientSession::IsExpectedCompletion(const CNode& peer, int session_id) const
+{
+    return session_id != 0 && nSessionID == session_id && mixingMasternode &&
+           mixingMasternode->pdmnState->netInfo->GetPrimary() == peer.addr;
+}
+
 void CCoinJoinClientSession::ProcessMessage(CNode& peer, Chainstate& active_chainstate, CConnman& connman, const CTxMemPool& mempool, std::string_view msg_type, CDataStream& vRecv)
 {
     if (!CCoinJoinClientOptions::IsEnabled()) return;

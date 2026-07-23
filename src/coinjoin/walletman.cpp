@@ -211,8 +211,20 @@ MessageProcessingResult CJWalletManagerImpl::processMessage(CNode& pfrom, Chains
 {
     // A directly pushed DSTX is accepted before DSCOMPLETE is processed, but the
     // wallet notification is asynchronous. Drain it before a successful completion
-    // can release the session inputs for reuse.
-    if (msg_type == NetMsgType::DSCOMPLETE && pfrom.m_masternode_connection) SyncWithValidationInterfaceQueue();
+    // can release the session inputs for reuse. Validate the session first without
+    // holding CoinJoin locks across the validation-interface queue barrier.
+    if (msg_type == NetMsgType::DSCOMPLETE) {
+        CDataStream completion{vRecv};
+        int session_id;
+        PoolMessage message_id;
+        completion >> session_id >> message_id;
+        if (message_id >= MSG_POOL_MIN && message_id <= MSG_POOL_MAX &&
+            ForAnyCJClientMan([&](const CCoinJoinClientManager& clientman) {
+                return clientman.IsExpectedCompletion(pfrom, session_id);
+            })) {
+            SyncWithValidationInterfaceQueue();
+        }
+    }
 
     ForEachCJClientMan([&](CCoinJoinClientManager& clientman) {
         clientman.ProcessMessage(pfrom, chainstate, connman, mempool, msg_type, vRecv);

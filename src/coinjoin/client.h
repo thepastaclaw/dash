@@ -67,6 +67,8 @@ public:
 class CCoinJoinClientSession : public CCoinJoinBaseSession
 {
 private:
+    friend struct CoinJoinClientManagerTest;
+
     const std::shared_ptr<wallet::CWallet> m_wallet;
     CCoinJoinClientManager& m_clientman;
     CDeterministicMNManager& m_dmnman;
@@ -130,6 +132,7 @@ public:
                                     const CMasternodeSync& mn_sync, const llmq::CInstantSendManager& isman);
 
     void ProcessMessage(CNode& peer, Chainstate& active_chainstate, CConnman& connman, const CTxMemPool& mempool, std::string_view msg_type, CDataStream& vRecv);
+    [[nodiscard]] bool IsExpectedCompletion(const CNode& peer, int session_id) const;
 
     void UnlockCoins();
 
@@ -158,6 +161,8 @@ public:
 class CCoinJoinClientManager : public interfaces::CoinJoin::Client
 {
 private:
+    friend struct CoinJoinClientManagerTest;
+
     const std::shared_ptr<wallet::CWallet> m_wallet;
     CDeterministicMNManager& m_dmnman;
     CMasternodeMetaMan& m_mn_metaman;
@@ -194,6 +199,8 @@ public:
     ~CCoinJoinClientManager();
 
     void ProcessMessage(CNode& peer, Chainstate& active_chainstate, CConnman& connman, const CTxMemPool& mempool, std::string_view msg_type, CDataStream& vRecv) EXCLUSIVE_LOCKS_REQUIRED(!cs_deqsessions);
+    [[nodiscard]] bool IsExpectedCompletion(const CNode& peer, int session_id) const
+        EXCLUSIVE_LOCKS_REQUIRED(!cs_deqsessions);
 
     bool GetMixingMasternodesInfo(std::vector<CDeterministicMNCPtr>& vecDmnsRet) const EXCLUSIVE_LOCKS_REQUIRED(!cs_deqsessions);
 
