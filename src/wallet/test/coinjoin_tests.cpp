@@ -21,6 +21,7 @@
 #include <util/system.h>
 #include <util/translation.h>
 #include <validation.h>
+#include <validationinterface.h>
 #include <wallet/context.h>
 #include <wallet/spend.h>
 #include <wallet/wallet.h>
@@ -262,6 +263,7 @@ BOOST_FIXTURE_TEST_CASE(coinjoin_completion_waits_for_wallet_callbacks, CTransac
     struct ProcessingResult {
         bool queue_blocked{false};
         bool processing_started{false};
+        bool barrier_enqueued{false};
         bool completed_before_unblock{false};
         bool completed_after_unblock{false};
         bool callback_processed_before_unblock{false};
@@ -269,7 +271,7 @@ BOOST_FIXTURE_TEST_CASE(coinjoin_completion_waits_for_wallet_callbacks, CTransac
         std::exception_ptr error;
     };
 
-    auto process_completion = [&](CNode& peer, int session_id) {
+    auto process_completion = [&](CNode& peer, int session_id, bool expect_barrier) {
         ProcessingResult result;
         std::promise<void> unblock_queue;
         const std::shared_future<void> unblock_future{unblock_queue.get_future()};
@@ -287,6 +289,7 @@ BOOST_FIXTURE_TEST_CASE(coinjoin_completion_waits_for_wallet_callbacks, CTransac
 
         std::atomic<bool> preceding_callback_processed{false};
         CallFunctionInValidationInterfaceQueue([&preceding_callback_processed] { preceding_callback_processed = true; });
+        const size_t callbacks_pending_baseline{GetMainSignals().CallbacksPending()};
 
         std::promise<void> processing_started;
         auto processing_started_future{processing_started.get_future()};
@@ -324,8 +327,17 @@ BOOST_FIXTURE_TEST_CASE(coinjoin_completion_waits_for_wallet_callbacks, CTransac
 
         result.processing_started = processing_started_future.wait_for(std::chrono::seconds{5}) ==
                                     std::future_status::ready;
-        if (result.processing_started) {
-            result.completed_before_unblock = processing_done_future.wait_for(std::chrono::milliseconds{100}) ==
+        if (result.processing_started && expect_barrier) {
+            const auto deadline{std::chrono::steady_clock::now() + std::chrono::seconds{5}};
+            while (GetMainSignals().CallbacksPending() == callbacks_pending_baseline &&
+                   std::chrono::steady_clock::now() < deadline) {
+                if (processing_done_future.wait_for(std::chrono::milliseconds{1}) == std::future_status::ready) break;
+            }
+            result.barrier_enqueued = GetMainSignals().CallbacksPending() > callbacks_pending_baseline;
+            result.completed_before_unblock = processing_done_future.wait_for(std::chrono::milliseconds{0}) ==
+                                              std::future_status::ready;
+        } else if (result.processing_started) {
+            result.completed_before_unblock = processing_done_future.wait_for(std::chrono::seconds{5}) ==
                                               std::future_status::ready;
         }
         result.callback_processed_before_unblock = preceding_callback_processed;
@@ -396,7 +408,7 @@ BOOST_FIXTURE_TEST_CASE(coinjoin_completion_waits_for_wallet_callbacks, CTransac
     auto unrelated_peer{make_peer(0x7f000002)};
     unrelated_peer->m_masternode_connection = true;
 
-    const auto unrelated_result{process_completion(*unrelated_peer, session_id)};
+    const auto unrelated_result{process_completion(*unrelated_peer, session_id, /*expect_barrier=*/false)};
     BOOST_CHECK(unrelated_result.queue_blocked);
     BOOST_CHECK(unrelated_result.processing_started);
     BOOST_CHECK(unrelated_result.completed_before_unblock);
@@ -405,7 +417,7 @@ BOOST_FIXTURE_TEST_CASE(coinjoin_completion_waits_for_wallet_callbacks, CTransac
     BOOST_CHECK(unrelated_result.callback_processed_after_unblock);
     check_processing_error(unrelated_result.error);
 
-    const auto wrong_session_result{process_completion(*expected_peer, session_id + 1)};
+    const auto wrong_session_result{process_completion(*expected_peer, session_id + 1, /*expect_barrier=*/false)};
     BOOST_CHECK(wrong_session_result.queue_blocked);
     BOOST_CHECK(wrong_session_result.processing_started);
     BOOST_CHECK(wrong_session_result.completed_before_unblock);
@@ -414,9 +426,10 @@ BOOST_FIXTURE_TEST_CASE(coinjoin_completion_waits_for_wallet_callbacks, CTransac
     BOOST_CHECK(wrong_session_result.callback_processed_after_unblock);
     check_processing_error(wrong_session_result.error);
 
-    const auto completion_result{process_completion(*expected_peer, session_id)};
+    const auto completion_result{process_completion(*expected_peer, session_id, /*expect_barrier=*/true)};
     BOOST_CHECK(completion_result.queue_blocked);
     BOOST_CHECK(completion_result.processing_started);
+    BOOST_CHECK(completion_result.barrier_enqueued);
     BOOST_CHECK(!completion_result.completed_before_unblock);
     BOOST_CHECK(!completion_result.callback_processed_before_unblock);
     BOOST_CHECK(completion_result.completed_after_unblock);
