@@ -246,18 +246,94 @@ BOOST_FIXTURE_TEST_CASE(coinjoin_manager_start_stop_tests, CTransactionBuilderTe
 
 BOOST_FIXTURE_TEST_CASE(coinjoin_completion_waits_for_wallet_callbacks, CTransactionBuilderTestSetup)
 {
-    std::promise<void> unblock_queue;
-    const std::shared_future<void> unblock_future{unblock_queue.get_future()};
-    std::promise<void> queue_blocked;
-    auto queue_blocked_future{queue_blocked.get_future()};
-    CallFunctionInValidationInterfaceQueue([&queue_blocked, unblock_future] {
-        queue_blocked.set_value();
-        unblock_future.wait();
-    });
-    queue_blocked_future.wait();
+    struct ProcessingResult {
+        bool queue_blocked{false};
+        bool processing_started{false};
+        bool completed_before_unblock{false};
+        bool completed_after_unblock{false};
+        bool callback_processed_before_unblock{false};
+        bool callback_processed_after_unblock{false};
+        std::exception_ptr error;
+    };
 
-    std::atomic<bool> preceding_callback_processed{false};
-    CallFunctionInValidationInterfaceQueue([&preceding_callback_processed] { preceding_callback_processed = true; });
+    auto process_completion = [&](CNode& peer) {
+        ProcessingResult result;
+        std::promise<void> unblock_queue;
+        const std::shared_future<void> unblock_future{unblock_queue.get_future()};
+        auto queue_blocked{std::make_shared<std::promise<void>>()};
+        auto queue_blocked_future{queue_blocked->get_future()};
+        CallFunctionInValidationInterfaceQueue([queue_blocked, unblock_future] {
+            queue_blocked->set_value();
+            unblock_future.wait();
+        });
+        result.queue_blocked = queue_blocked_future.wait_for(std::chrono::seconds{5}) == std::future_status::ready;
+        if (!result.queue_blocked) {
+            unblock_queue.set_value();
+            return result;
+        }
+
+        std::atomic<bool> preceding_callback_processed{false};
+        CallFunctionInValidationInterfaceQueue([&preceding_callback_processed] { preceding_callback_processed = true; });
+
+        std::promise<void> processing_started;
+        auto processing_started_future{processing_started.get_future()};
+        std::promise<void> processing_done;
+        auto processing_done_future{processing_done.get_future()};
+        std::thread processing_thread{[&] {
+            processing_started.set_value();
+            try {
+                CDataStream stream{SER_NETWORK, PROTOCOL_VERSION};
+                m_node.cj_walletman->processMessage(peer, m_node.chainman->ActiveChainstate(), *m_node.connman,
+                                                    *m_node.mempool, NetMsgType::DSCOMPLETE, stream);
+            } catch (...) {
+                result.error = std::current_exception();
+            }
+            processing_done.set_value();
+        }};
+        struct Cleanup {
+            std::promise<void>& unblock_queue;
+            std::thread& processing_thread;
+            bool unblocked{false};
+
+            void Unblock()
+            {
+                if (unblocked) return;
+                unblock_queue.set_value();
+                unblocked = true;
+            }
+            ~Cleanup()
+            {
+                Unblock();
+                if (processing_thread.joinable()) processing_thread.join();
+            }
+        } cleanup{unblock_queue, processing_thread};
+
+        result.processing_started = processing_started_future.wait_for(std::chrono::seconds{5}) ==
+                                    std::future_status::ready;
+        if (result.processing_started) {
+            result.completed_before_unblock = processing_done_future.wait_for(std::chrono::milliseconds{100}) ==
+                                              std::future_status::ready;
+        }
+        result.callback_processed_before_unblock = preceding_callback_processed;
+        cleanup.Unblock();
+        result.completed_after_unblock = processing_done_future.wait_for(std::chrono::seconds{5}) ==
+                                         std::future_status::ready;
+        if (processing_thread.joinable()) processing_thread.join();
+        SyncWithValidationInterfaceQueue();
+        result.callback_processed_after_unblock = preceding_callback_processed;
+        return result;
+    };
+
+    auto check_processing_error = [](const std::exception_ptr& error) {
+        if (!error) return;
+        try {
+            std::rethrow_exception(error);
+        } catch (const std::exception& e) {
+            BOOST_ERROR(e.what());
+        } catch (...) {
+            BOOST_ERROR("Unknown DSCOMPLETE processing exception");
+        }
+    };
 
     in_addr peer_in_addr{};
     peer_in_addr.s_addr = htonl(0x7f000001);
@@ -273,37 +349,24 @@ BOOST_FIXTURE_TEST_CASE(coinjoin_completion_waits_for_wallet_callbacks, CTransac
     peer.nVersion = PROTOCOL_VERSION;
     peer.SetCommonVersion(PROTOCOL_VERSION);
 
-    CDataStream unsolicited_stream{SER_NETWORK, PROTOCOL_VERSION};
-    m_node.cj_walletman->processMessage(peer, m_node.chainman->ActiveChainstate(), *m_node.connman, *m_node.mempool,
-                                        NetMsgType::DSCOMPLETE, unsolicited_stream);
-    BOOST_CHECK(!preceding_callback_processed);
+    const auto unsolicited_result{process_completion(peer)};
+    BOOST_CHECK(unsolicited_result.queue_blocked);
+    BOOST_CHECK(unsolicited_result.processing_started);
+    BOOST_CHECK(unsolicited_result.completed_before_unblock);
+    BOOST_CHECK(!unsolicited_result.callback_processed_before_unblock);
+    BOOST_CHECK(unsolicited_result.completed_after_unblock);
+    BOOST_CHECK(unsolicited_result.callback_processed_after_unblock);
+    check_processing_error(unsolicited_result.error);
 
     peer.m_masternode_connection = true;
-    std::promise<void> processing_started;
-    auto processing_started_future{processing_started.get_future()};
-    std::promise<void> processing_done;
-    auto processing_done_future{processing_done.get_future()};
-    std::exception_ptr processing_error;
-    std::thread processing_thread{[&] {
-        processing_started.set_value();
-        try {
-            CDataStream stream{SER_NETWORK, PROTOCOL_VERSION};
-            m_node.cj_walletman->processMessage(peer, m_node.chainman->ActiveChainstate(), *m_node.connman,
-                                                *m_node.mempool, NetMsgType::DSCOMPLETE, stream);
-        } catch (...) {
-            processing_error = std::current_exception();
-        }
-        processing_done.set_value();
-    }};
-
-    processing_started_future.wait();
-    BOOST_CHECK(processing_done_future.wait_for(std::chrono::milliseconds{100}) == std::future_status::timeout);
-    unblock_queue.set_value();
-    BOOST_REQUIRE(processing_done_future.wait_for(std::chrono::seconds{5}) == std::future_status::ready);
-    processing_thread.join();
-    SyncWithValidationInterfaceQueue();
-    if (processing_error) std::rethrow_exception(processing_error);
-    BOOST_CHECK(preceding_callback_processed);
+    const auto completion_result{process_completion(peer)};
+    BOOST_CHECK(completion_result.queue_blocked);
+    BOOST_CHECK(completion_result.processing_started);
+    BOOST_CHECK(!completion_result.completed_before_unblock);
+    BOOST_CHECK(!completion_result.callback_processed_before_unblock);
+    BOOST_CHECK(completion_result.completed_after_unblock);
+    BOOST_CHECK(completion_result.callback_processed_after_unblock);
+    check_processing_error(completion_result.error);
 }
 
 // End-to-end check that NewKeyPool() stops mixing
