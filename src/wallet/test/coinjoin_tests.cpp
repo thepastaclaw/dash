@@ -273,6 +273,12 @@ BOOST_FIXTURE_TEST_CASE(coinjoin_completion_waits_for_wallet_callbacks, CTransac
     peer.nVersion = PROTOCOL_VERSION;
     peer.SetCommonVersion(PROTOCOL_VERSION);
 
+    CDataStream unsolicited_stream{SER_NETWORK, PROTOCOL_VERSION};
+    m_node.cj_walletman->processMessage(peer, m_node.chainman->ActiveChainstate(), *m_node.connman, *m_node.mempool,
+                                        NetMsgType::DSCOMPLETE, unsolicited_stream);
+    BOOST_CHECK(!preceding_callback_processed);
+
+    peer.m_masternode_connection = true;
     std::promise<void> processing_started;
     auto processing_started_future{processing_started.get_future()};
     std::promise<void> processing_done;
