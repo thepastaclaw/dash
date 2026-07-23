@@ -209,6 +209,11 @@ MessageProcessingResult CJWalletManagerImpl::processMessage(CNode& pfrom, Chains
                                                             CTxMemPool& mempool, std::string_view msg_type,
                                                             CDataStream& vRecv)
 {
+    // A directly pushed DSTX is accepted before DSCOMPLETE is processed, but the
+    // wallet notification is asynchronous. Drain it before a successful completion
+    // can release the session inputs for reuse.
+    if (msg_type == NetMsgType::DSCOMPLETE) SyncWithValidationInterfaceQueue();
+
     ForEachCJClientMan([&](CCoinJoinClientManager& clientman) {
         clientman.ProcessMessage(pfrom, chainstate, connman, mempool, msg_type, vRecv);
     });
