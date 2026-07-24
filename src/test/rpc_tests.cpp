@@ -2,14 +2,20 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#if defined(HAVE_CONFIG_H)
+#include <config/bitcoin-config.h>
+#endif
+
 #include <context.h>
 #include <core_io.h>
 #include <interfaces/chain.h>
 #include <node/context.h>
 #include <rpc/blockchain.h>
 #include <rpc/client.h>
+#include <rpc/register.h>
 #include <rpc/server.h>
 #include <rpc/util.h>
+#include <span.h>
 #include <test/util/setup_common.h>
 #include <univalue.h>
 #include <util/time.h>
@@ -703,3 +709,34 @@ BOOST_AUTO_TEST_CASE(rpc_convert_composite_commands)
 }
 
 BOOST_AUTO_TEST_SUITE_END()
+
+#ifdef ENABLE_WALLET
+BOOST_AUTO_TEST_SUITE(rpc_help_tests)
+
+BOOST_AUTO_TEST_CASE(rpc_protx_payout_address_help)
+{
+    CRPCTable rpc_table;
+    for (const auto& command : GetWalletEvoRPCCommands()) {
+        rpc_table.appendCommand(command.name, &command);
+    }
+
+    JSONRPCRequest request;
+    const auto check_help = [&](const std::string& command) {
+        const std::string help = rpc_table.help(command, request);
+        const std::string usage = help.substr(0, help.find('\n'));
+        BOOST_CHECK_NE(usage.find("\"payoutAddress\" | [{\"address\",\"reward\"},...] (string or array)"),
+                       std::string::npos);
+
+        const auto argument_pos = help.find(". payoutAddress");
+        BOOST_REQUIRE_NE(argument_pos, std::string::npos);
+        const auto argument_end = help.find('\n', argument_pos);
+        const std::string argument_line = help.substr(argument_pos, argument_end - argument_pos);
+        BOOST_CHECK_NE(argument_line.find("(string or array, required)"), std::string::npos);
+    };
+
+    check_help("protx register");
+    check_help("protx update_registrar");
+}
+
+BOOST_AUTO_TEST_SUITE_END()
+#endif // ENABLE_WALLET
