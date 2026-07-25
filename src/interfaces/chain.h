@@ -127,6 +127,12 @@ struct BlockInfo {
 class Chain
 {
 public:
+    //! Unspent/spent snapshot for an outpoint, captured under one chain+mempool view.
+    struct CoinSpendingState {
+        bool unspent{false};
+        bool mempool_spent{false};
+    };
+
     virtual ~Chain() {}
 
     //! Get current chain height, not including genesis block (returns 0 if
@@ -209,6 +215,10 @@ public:
     //! the current chain UTXO set. Iterates through all the keys in the map and
     //! populates the values.
     virtual void findCoins(std::map<COutPoint, Coin>& coins) = 0;
+
+    //! Look up whether outputs are currently unspent and whether a mempool
+    //! transaction spends them, under one coherent chain+mempool snapshot.
+    virtual void findCoinSpendingStates(std::map<COutPoint, CoinSpendingState>& states) = 0;
 
     //! Estimate fraction of total transactions verified if blocks up to
     //! the specified block hash are verified.

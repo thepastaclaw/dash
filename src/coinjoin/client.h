@@ -188,11 +188,12 @@ private:
     //! Maps outpoint to the time it was added. Mirrored to the wallet database so that
     //! both the locks and their grace period survive a restart, and so that these are
     //! never confused with locks the user set themselves via `lockunspent`.
-    std::map<COutPoint, int64_t> m_pending_obs GUARDED_BY(cs_pending_obs);
-    bool m_pending_obs_loaded GUARDED_BY(cs_pending_obs){false};
+    mutable std::map<COutPoint, int64_t> m_pending_obs GUARDED_BY(cs_pending_obs);
+    mutable bool m_pending_obs_loaded GUARDED_BY(cs_pending_obs){false};
 
     /// Populate m_pending_obs from the wallet database, once per run
-    void LoadPendingObservations(wallet::WalletBatch& batch) EXCLUSIVE_LOCKS_REQUIRED(cs_pending_obs);
+    void LoadPendingObservations(wallet::WalletBatch& batch) const EXCLUSIVE_LOCKS_REQUIRED(cs_pending_obs);
+    void EnsurePendingObservationsLoaded() const;
 
     // Keep track of current block height
     int nCachedBlockHeight{0};
@@ -231,10 +232,6 @@ public:
 
     void UpdatedSuccessBlock();
 
-    //! How long to keep waiting for the finalized mixing transaction before
-    //! double-checking chain/mempool spentness and potentially releasing the inputs
-    static constexpr int64_t PENDING_OBSERVATION_TIMEOUT_SECONDS{60 * 60};
-
     /// Keep the given successfully mixed inputs locked (persistently) until the wallet
     /// observes a transaction spending them
     void AddPendingObservation(const std::vector<COutPoint>& outpoints) EXCLUSIVE_LOCKS_REQUIRED(!cs_pending_obs);
@@ -246,7 +243,7 @@ public:
     void UpdatedBlockTip(const CBlockIndex* pindex);
 
     void DoMaintenance(ChainstateManager& chainman, CConnman& connman, const CTxMemPool& mempool)
-        EXCLUSIVE_LOCKS_REQUIRED(!cs_deqsessions, !cs_pending_obs);
+        EXCLUSIVE_LOCKS_REQUIRED(!cs_deqsessions);
 
     // interfaces::CoinJoin::Client overrides
     void disableAutobackups() override { fCreateAutoBackups = false; }

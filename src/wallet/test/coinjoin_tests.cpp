@@ -310,7 +310,7 @@ BOOST_FIXTURE_TEST_CASE(coinjoin_pending_observation_tests, CTransactionBuilderT
 
         cj_man.AddPendingObservation({outpointTimeout, outpointInMempool});
         BOOST_CHECK_EQUAL(cj_man.GetPendingObservationCount(), 2);
-        SetMockTime(nStart + CCoinJoinClientManager::PENDING_OBSERVATION_TIMEOUT_SECONDS + 1);
+        SetMockTime(nStart + COINJOIN_PENDING_OBSERVATION_TIMEOUT + 1);
 
         // The timeout never fires while the chain is still catching up: the spending
         // transaction could be sitting in a block we have not downloaded yet

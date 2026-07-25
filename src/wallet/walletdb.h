@@ -237,6 +237,7 @@ public:
 
     bool WriteLockedUTXO(const COutPoint& output);
     bool EraseLockedUTXO(const COutPoint& output);
+    bool ContainsLockedUTXO(const COutPoint& output);
 
     bool WriteAddressPreviouslySpent(const CTxDestination& dest, bool previously_spent);
     bool WriteAddressReceiveRequest(const CTxDestination& dest, const std::string& id, const std::string& receive_request);

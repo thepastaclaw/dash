@@ -332,6 +332,11 @@ bool WalletBatch::EraseLockedUTXO(const COutPoint& output)
     return EraseIC(std::make_pair(DBKeys::LOCKED_UTXO, std::make_pair(output.hash, output.n)));
 }
 
+bool WalletBatch::ContainsLockedUTXO(const COutPoint& output)
+{
+    return m_batch->Exists(std::make_pair(DBKeys::LOCKED_UTXO, std::make_pair(output.hash, output.n)));
+}
+
 class CWalletScanState {
 public:
     unsigned int nKeys{0};

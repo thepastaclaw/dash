@@ -23,4 +23,18 @@ void FindCoins(const NodeContext& node, std::map<COutPoint, Coin>& coins)
         }
     }
 }
+
+void FindCoinSpendingStates(const NodeContext& node, std::map<COutPoint, interfaces::Chain::CoinSpendingState>& states)
+{
+    assert(node.mempool);
+    assert(node.chainman);
+    LOCK2(cs_main, node.mempool->cs);
+    CCoinsViewCache& chain_view = node.chainman->ActiveChainstate().CoinsTip();
+    CCoinsViewMemPool mempool_view(&chain_view, *node.mempool);
+    for (auto& [outpoint, state] : states) {
+        Coin coin;
+        state.unspent = mempool_view.GetCoin(outpoint, coin);
+        state.mempool_spent = node.mempool->GetConflictTx(outpoint) != nullptr;
+    }
+}
 } // namespace node

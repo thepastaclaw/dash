@@ -1348,6 +1348,7 @@ public:
                int{FillBlock(block2, block2_out, lock, active)};
     }
     void findCoins(std::map<COutPoint, Coin>& coins) override { return FindCoins(m_node, coins); }
+    void findCoinSpendingStates(std::map<COutPoint, CoinSpendingState>& states) override { return FindCoinSpendingStates(m_node, states); }
     double guessVerificationProgress(const uint256& block_hash) override
     {
         LOCK(::cs_main);

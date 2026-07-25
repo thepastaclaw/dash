@@ -5,6 +5,8 @@
 #ifndef BITCOIN_NODE_COIN_H
 #define BITCOIN_NODE_COIN_H
 
+#include <interfaces/chain.h>
+
 #include <map>
 
 class COutPoint;
@@ -22,6 +24,15 @@ struct NodeContext;
  * @param[in,out] coins map to fill
  */
 void FindCoins(const node::NodeContext& node, std::map<COutPoint, Coin>& coins);
+
+/**
+ * Look up whether outputs are currently unspent and whether a mempool
+ * transaction spends them, under one coherent chain+mempool snapshot.
+ *
+ * @param[in] node The node context to use for lookup
+ * @param[in,out] states map to fill
+ */
+void FindCoinSpendingStates(const node::NodeContext& node, std::map<COutPoint, interfaces::Chain::CoinSpendingState>& states);
 } // namespace node
 
 #endif // BITCOIN_NODE_COIN_H
