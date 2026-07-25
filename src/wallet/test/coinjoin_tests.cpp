@@ -12,6 +12,7 @@
 #include <coinjoin/util.h>
 #include <consensus/amount.h>
 #include <interfaces/coinjoin.h>
+#include <llmq/context.h>
 #include <masternode/sync.h>
 #include <node/context.h>
 #include <util/system.h>
@@ -24,8 +25,71 @@
 #include <wallet/spend.h>
 #include <wallet/wallet.h>
 #include <wallet/walletdb.h>
+#include <univalue.h>
 
 #include <boost/test/unit_test.hpp>
+
+class CCoinJoinTestAccess
+{
+public:
+    static void PrepareCompletedTransaction(CCoinJoinClientSession& session, const std::vector<COutPoint>& mixing_outpoints,
+                                            const std::vector<COutPoint>& extra_locked_outpoints)
+    {
+        {
+            LOCK(session.m_wallet->cs_wallet);
+            session.vecOutPointLocked.clear();
+            for (const auto& outpoint : mixing_outpoints) {
+                session.m_wallet->LockCoin(outpoint);
+                session.vecOutPointLocked.push_back(outpoint);
+            }
+            for (const auto& outpoint : extra_locked_outpoints) {
+                session.m_wallet->LockCoin(outpoint);
+                session.vecOutPointLocked.push_back(outpoint);
+            }
+        }
+
+        std::vector<CTxDSIn> vec_txdsin;
+        vec_txdsin.reserve(mixing_outpoints.size());
+        for (const auto& outpoint : mixing_outpoints) {
+            vec_txdsin.emplace_back(CTxIn{outpoint}, CScript{}, /*nRounds=*/0);
+        }
+
+        LOCK(session.cs_coinjoin);
+        session.vecEntries.clear();
+        session.vecEntries.emplace_back(vec_txdsin, std::vector<CTxOut>{}, CTransaction{CMutableTransaction{}});
+    }
+
+    static void CompletedTransaction(CCoinJoinClientSession& session, PoolMessage message_id)
+    {
+        session.CompletedTransaction(message_id);
+    }
+};
+
+class CoinJoinEnabledScope
+{
+private:
+    const bool m_was_enabled{CCoinJoinClientOptions::IsEnabled()};
+
+public:
+    CoinJoinEnabledScope()
+    {
+        CCoinJoinClientOptions::SetEnabled(true);
+    }
+
+    ~CoinJoinEnabledScope()
+    {
+        CCoinJoinClientOptions::SetEnabled(m_was_enabled);
+    }
+};
+
+class ResetMockTimeOnExit
+{
+public:
+    ~ResetMockTimeOnExit()
+    {
+        SetMockTime(0);
+    }
+};
 
 namespace wallet {
 BOOST_FIXTURE_TEST_SUITE(coinjoin_tests, BasicTestingSetup)
@@ -78,6 +142,7 @@ BOOST_AUTO_TEST_CASE(coinjoin_collateral_tests)
 
 BOOST_AUTO_TEST_CASE(coinjoin_pending_dsa_request_tests)
 {
+    ResetMockTimeOnExit reset_mock_time;
     CPendingDsaRequest dsa_request;
     BOOST_CHECK(dsa_request.GetProTxHash() == uint256());
     BOOST_CHECK(dsa_request.GetDSA() == CCoinJoinAccept());
@@ -144,6 +209,12 @@ public:
     CTransactionBuilderTestSetup() :
         wallet{std::make_unique<CWallet>(m_node.chain.get(), m_node.coinjoin_loader.get(), "", m_args, CreateMockWalletDatabase())}
     {
+        // NOTE: minRelayTxFee is a global other suites mutate without restoring the
+        // default (transaction_tests leaves it at DUST_RELAY_TX_FEE), which makes the
+        // feerate GetTallyItem() asks for lower than the minimum and fails every
+        // CreateTransaction() call below. Boost shuffles test order in CI, so pin it
+        // here for every test using this fixture instead of per test.
+        minRelayTxFee = CFeeRate(DEFAULT_MIN_RELAY_TX_FEE);
         context.args = &m_args;
         context.chain = m_node.chain.get();
         context.coinjoin_loader = m_node.coinjoin_loader.get();
@@ -166,6 +237,7 @@ public:
 
     ~CTransactionBuilderTestSetup()
     {
+        SetMockTime(0);
         RemoveWallet(context, wallet, /*load_on_start=*/std::nullopt);
     }
 
@@ -205,7 +277,9 @@ public:
             CTransactionRef tx;
             {
                 auto res = CreateTransaction(*wallet, {{GetScriptForDestination(tallyItem.txdest), nAmount, false}}, nChangePosRet, coinControl);
-                BOOST_REQUIRE(res);
+                // Report why it failed, a bare "critical check res has failed" says nothing
+                BOOST_REQUIRE_MESSAGE(res, strprintf("CreateTransaction(%d) failed: %s", nAmount,
+                                                     util::ErrorString(res).original));
                 tx = res->tx;
                 nChangePosRet = res->change_pos;
             }
@@ -231,6 +305,7 @@ public:
 
 BOOST_FIXTURE_TEST_CASE(coinjoin_pending_observation_tests, CTransactionBuilderTestSetup)
 {
+    ResetMockTimeOnExit reset_mock_time;
     // 0.100001 DASH, a valid CoinJoin denomination
     constexpr CAmount nDenomAmount{10000100};
     BOOST_REQUIRE(CoinJoin::IsDenominatedAmount(nDenomAmount));
@@ -339,7 +414,125 @@ BOOST_FIXTURE_TEST_CASE(coinjoin_pending_observation_tests, CTransactionBuilderT
 
         // The user's own lock was never touched throughout
         BOOST_CHECK(WITH_LOCK(wallet->cs_wallet, return wallet->IsLockedCoin(outpointUserLocked)));
-        SetMockTime(0);
+    }));
+}
+
+BOOST_FIXTURE_TEST_CASE(coinjoin_pending_observation_reload_tests, CTransactionBuilderTestSetup)
+{
+    ResetMockTimeOnExit reset_mock_time;
+    // 0.100001 DASH, a valid CoinJoin denomination
+    constexpr CAmount nDenomAmount{10000100};
+    CompactTallyItem tallyItem = GetTallyItem({nDenomAmount});
+    const COutPoint outpointPending = tallyItem.outpoints[0];
+
+    const int64_t nStart{GetTime()};
+    SetMockTime(nStart);
+    BOOST_CHECK(m_node.cj_walletman->doForClient("", [&](CCoinJoinClientManager& cj_man) {
+        cj_man.AddPendingObservation({outpointPending});
+        BOOST_CHECK(cj_man.IsPendingObservation(outpointPending));
+    }));
+    BOOST_CHECK(WITH_LOCK(wallet->cs_wallet, return wallet->IsLockedCoin(outpointPending)));
+
+    // Drop the client manager and create a fresh one for the same wallet: it has to pick
+    // the pending observation back up from the wallet database, the way it would after a
+    // restart, otherwise the persisted lock would be left with nothing to release it
+    m_node.cj_walletman->removeWallet(wallet->GetName());
+    m_node.cj_walletman->addWallet(wallet);
+
+    BOOST_CHECK(m_node.cj_walletman->doForClient("", [&](CCoinJoinClientManager& cj_man) {
+        // Reloaded clients should surface persisted pending-observation state immediately,
+        // including in the user-facing JSON output.
+        BOOST_CHECK_EQUAL(cj_man.GetPendingObservationCount(), 1);
+        BOOST_CHECK_EQUAL(cj_man.getJsonInfo()["pending_inputs"].getInt<int>(), 1);
+        cj_man.CheckPendingObservations(*m_node.mempool);
+        BOOST_CHECK(cj_man.IsPendingObservation(outpointPending));
+        BOOST_CHECK_EQUAL(cj_man.GetPendingObservationCount(), 1);
+        BOOST_CHECK(WITH_LOCK(wallet->cs_wallet, return wallet->IsLockedCoin(outpointPending)));
+
+        m_node.mn_sync->SwitchToNextAsset();
+        BOOST_REQUIRE(m_node.mn_sync->IsBlockchainSynced());
+
+        // The grace period was restored along with the entry rather than restarted: the
+        // terminal timeout is measured from when the session completed, not from reload
+        SetMockTime(nStart + COINJOIN_PENDING_OBSERVATION_TIMEOUT - 1);
+        cj_man.CheckPendingObservations(*m_node.mempool);
+        BOOST_CHECK(cj_man.IsPendingObservation(outpointPending));
+        SetMockTime(nStart + COINJOIN_PENDING_OBSERVATION_TIMEOUT + 1);
+        cj_man.CheckPendingObservations(*m_node.mempool);
+        BOOST_CHECK(!cj_man.IsPendingObservation(outpointPending));
+        BOOST_CHECK(!WITH_LOCK(wallet->cs_wallet, return wallet->IsLockedCoin(outpointPending)));
+    }));
+}
+
+BOOST_FIXTURE_TEST_CASE(coinjoin_completed_transaction_success_locks_only_mixing_inputs, CTransactionBuilderTestSetup)
+{
+    CoinJoinEnabledScope coinjoin_enabled;
+    constexpr CAmount nDenomAmount{10000100};
+    BOOST_REQUIRE(CoinJoin::IsDenominatedAmount(nDenomAmount));
+    CompactTallyItem tallyItem = GetTallyItem({nDenomAmount, nDenomAmount, CoinJoin::GetCollateralAmount()});
+    const COutPoint user_locked_outpoint = tallyItem.outpoints[0];
+    const COutPoint mix_pending_outpoint = tallyItem.outpoints[1];
+    const COutPoint collateral_outpoint = tallyItem.outpoints[2];
+    const int64_t nNow{GetTime()};
+
+    BOOST_CHECK(m_node.cj_walletman->doForClient("", [&](CCoinJoinClientManager& cj_man) {
+        CCoinJoinClientSession session{wallet, cj_man, *m_node.dmnman, *m_node.mn_metaman, *m_node.mn_sync, *m_node.llmq_ctx->isman};
+        {
+            WalletBatch batch(wallet->GetDatabase());
+            WITH_LOCK(wallet->cs_wallet, wallet->LockCoin(user_locked_outpoint, &batch));
+        }
+        CCoinJoinTestAccess::PrepareCompletedTransaction(session, {user_locked_outpoint, mix_pending_outpoint}, {collateral_outpoint});
+
+        CCoinJoinTestAccess::CompletedTransaction(session, MSG_SUCCESS);
+
+        BOOST_CHECK(!cj_man.IsPendingObservation(user_locked_outpoint));
+        BOOST_CHECK(cj_man.IsPendingObservation(mix_pending_outpoint));
+        BOOST_CHECK(!cj_man.IsPendingObservation(collateral_outpoint));
+        BOOST_CHECK_EQUAL(cj_man.GetPendingObservationCount(), 1);
+        BOOST_CHECK(WITH_LOCK(wallet->cs_wallet, return wallet->IsLockedCoin(user_locked_outpoint)));
+        BOOST_CHECK(WITH_LOCK(wallet->cs_wallet, return wallet->IsLockedCoin(mix_pending_outpoint)));
+        BOOST_CHECK(!WITH_LOCK(wallet->cs_wallet, return wallet->IsLockedCoin(collateral_outpoint)));
+
+        std::map<COutPoint, int64_t> persisted;
+        WalletBatch batch(wallet->GetDatabase());
+        BOOST_REQUIRE(batch.ReadCoinJoinPendingObs(persisted));
+        BOOST_CHECK_EQUAL(persisted.size(), 1);
+        BOOST_CHECK_EQUAL(persisted.count(user_locked_outpoint), 0);
+        BOOST_CHECK_EQUAL(persisted.count(mix_pending_outpoint), 1);
+        BOOST_CHECK_EQUAL(persisted.count(collateral_outpoint), 0);
+
+        // User-persistent lock survives timeout cleanup while regular pending inputs
+        // are auto-released after the timeout.
+        SetMockTime(nNow + COINJOIN_PENDING_OBSERVATION_TIMEOUT + 1);
+        m_node.mn_sync->SwitchToNextAsset();
+        cj_man.CheckPendingObservations(*m_node.mempool);
+        BOOST_CHECK(!cj_man.IsPendingObservation(mix_pending_outpoint));
+        BOOST_CHECK(!WITH_LOCK(wallet->cs_wallet, return wallet->IsLockedCoin(mix_pending_outpoint)));
+        BOOST_CHECK(!cj_man.IsPendingObservation(user_locked_outpoint));
+        BOOST_CHECK(WITH_LOCK(wallet->cs_wallet, return wallet->IsLockedCoin(user_locked_outpoint)));
+    }));
+}
+
+BOOST_FIXTURE_TEST_CASE(coinjoin_completed_transaction_failure_unlocks_immediately, CTransactionBuilderTestSetup)
+{
+    CoinJoinEnabledScope coinjoin_enabled;
+    constexpr CAmount nDenomAmount{10000100};
+    BOOST_REQUIRE(CoinJoin::IsDenominatedAmount(nDenomAmount));
+    CompactTallyItem tallyItem = GetTallyItem({nDenomAmount, CoinJoin::GetCollateralAmount()});
+    const COutPoint mixing_outpoint = tallyItem.outpoints[0];
+    const COutPoint collateral_outpoint = tallyItem.outpoints[1];
+
+    BOOST_CHECK(m_node.cj_walletman->doForClient("", [&](CCoinJoinClientManager& cj_man) {
+        CCoinJoinClientSession session{wallet, cj_man, *m_node.dmnman, *m_node.mn_metaman, *m_node.mn_sync, *m_node.llmq_ctx->isman};
+        CCoinJoinTestAccess::PrepareCompletedTransaction(session, {mixing_outpoint}, {collateral_outpoint});
+
+        CCoinJoinTestAccess::CompletedTransaction(session, ERR_INVALID_TX);
+
+        BOOST_CHECK(!cj_man.IsPendingObservation(mixing_outpoint));
+        BOOST_CHECK(!cj_man.IsPendingObservation(collateral_outpoint));
+        BOOST_CHECK_EQUAL(cj_man.GetPendingObservationCount(), 0);
+        BOOST_CHECK(!WITH_LOCK(wallet->cs_wallet, return wallet->IsLockedCoin(mixing_outpoint)));
+        BOOST_CHECK(!WITH_LOCK(wallet->cs_wallet, return wallet->IsLockedCoin(collateral_outpoint)));
     }));
 }
 

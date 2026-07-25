@@ -31,6 +31,7 @@ class CBLSPublicKey;
 class CBlockIndex;
 class ChainstateManager;
 class CTxMemPool;
+class CCoinJoinTestAccess;
 
 namespace chainlock {
 class Chainlocks;
@@ -323,6 +324,7 @@ public:
 // base class
 class CCoinJoinBaseSession
 {
+    friend class CCoinJoinTestAccess;
 protected:
     mutable Mutex cs_coinjoin;
 

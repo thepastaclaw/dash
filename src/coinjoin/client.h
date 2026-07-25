@@ -29,6 +29,7 @@ class CMasternodeMetaMan;
 class CMasternodeSync;
 class CNode;
 class CTxMemPool;
+class CCoinJoinTestAccess;
 
 class UniValue;
 
@@ -71,6 +72,7 @@ public:
 
 class CCoinJoinClientSession : public CCoinJoinBaseSession
 {
+    friend class CCoinJoinTestAccess;
 private:
     const std::shared_ptr<wallet::CWallet> m_wallet;
     CCoinJoinClientManager& m_clientman;
