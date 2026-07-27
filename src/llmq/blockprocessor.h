@@ -18,7 +18,10 @@
 
 #include <gsl/pointers.h>
 
+#include <map>
 #include <optional>
+#include <utility>
+#include <vector>
 
 class BlockValidationState;
 class CBlock;
@@ -38,6 +41,9 @@ namespace llmq
 class CFinalCommitment;
 class CQuorumSnapshotManager;
 
+using QcHashMap = std::map<Consensus::LLMQType, std::vector<uint256>>;
+using QcIndexedHashMap = std::map<Consensus::LLMQType, std::map<int16_t, uint256>>;
+
 class CQuorumBlockProcessor
 {
 private:
@@ -54,6 +60,27 @@ private:
 
     mutable std::map<Consensus::LLMQType, Uint256LruHashMap<bool>> mapHasMinedCommitmentCache GUARDED_BY(minableCommitmentsCs);
 
+    // Caches backing GetCachedQcHashes(), used by CalcCbTxMerkleRootQuorums.
+    //
+    // m_qc_hashes_lru maps a quorum *base* block hash to the hash of the commitment mined
+    // for it. That key does not identify the branch the commitment was mined on: two valid
+    // branches can mine different CFinalCommitments for the same base. evoDb is rolled back
+    // on disconnect, but this LRU is not, so it must be dropped explicitly whenever mined
+    // commitment state is undone -- otherwise CalcCbTxMerkleRootQuorums recomputes the old
+    // branch's merkle root and rejects a valid replacement with bad-cbtx-quorummerkleroot.
+    //
+    // m_quorums_cached/m_qcHashes_cached/m_qcIndexedHashes_cached memoize the whole result
+    // keyed by the active base-block list. That key does change across the reorg, so this
+    // layer is not the source of the staleness; it is cleared alongside the LRU only because
+    // it is derived from it.
+    mutable Mutex m_qc_hashes_cache_mutex;
+    mutable std::map<Consensus::LLMQType, Uint256LruHashMap<std::pair<uint256, int16_t>>> m_qc_hashes_lru
+        GUARDED_BY(m_qc_hashes_cache_mutex);
+    mutable std::map<Consensus::LLMQType, std::vector<const CBlockIndex*>> m_quorums_cached
+        GUARDED_BY(m_qc_hashes_cache_mutex);
+    mutable QcHashMap m_qcHashes_cached GUARDED_BY(m_qc_hashes_cache_mutex);
+    mutable QcIndexedHashMap m_qcIndexedHashes_cached GUARDED_BY(m_qc_hashes_cache_mutex);
+
 public:
     CQuorumBlockProcessor() = delete;
     CQuorumBlockProcessor(const CQuorumBlockProcessor&) = delete;
@@ -68,7 +95,16 @@ public:
     bool ProcessBlock(const CBlock& block, gsl::not_null<const CBlockIndex*> pindex, BlockValidationState& state,
                       bool fJustCheck, bool fBLSChecks) EXCLUSIVE_LOCKS_REQUIRED(::cs_main, !minableCommitmentsCs);
     bool UndoBlock(const CBlock& block, gsl::not_null<const CBlockIndex*> pindex)
-        EXCLUSIVE_LOCKS_REQUIRED(::cs_main, !minableCommitmentsCs);
+        EXCLUSIVE_LOCKS_REQUIRED(::cs_main, !minableCommitmentsCs, !m_qc_hashes_cache_mutex);
+
+    //! Commitment hashes for all mined-and-active quorums as of `pindexPrev`, memoized.
+    //! Returns nullopt if a commitment referenced by the active base-block list is missing.
+    std::optional<std::pair<QcHashMap, QcIndexedHashMap>> GetCachedQcHashes(const CBlockIndex* pindexPrev) const
+        EXCLUSIVE_LOCKS_REQUIRED(!m_qc_hashes_cache_mutex);
+
+    //! Drop the caches behind GetCachedQcHashes(). Required whenever mined commitment data
+    //! can change for an unchanged quorum base block (disconnect/reorg).
+    void InvalidateCachedQcHashes() EXCLUSIVE_LOCKS_REQUIRED(!m_qc_hashes_cache_mutex);
 
     //! it returns hash of commitment if it should be relay, otherwise nullopt
     std::optional<CInv> AddMineableCommitment(const CFinalCommitment& fqc) EXCLUSIVE_LOCKS_REQUIRED(!minableCommitmentsCs);

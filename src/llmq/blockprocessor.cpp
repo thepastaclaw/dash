@@ -4,7 +4,6 @@
 
 #include <llmq/blockprocessor.h>
 
-#include <evo/cbtx_cache.h>
 #include <evo/evodb.h>
 #include <evo/specialtx.h>
 #include <llmq/commitment.h>
@@ -54,6 +53,9 @@ CQuorumBlockProcessor::CQuorumBlockProcessor(Chainstate& chainstate, CDeterminis
     m_qsnapman{qsnapman}
 {
     utils::InitQuorumsCache(mapHasMinedCommitmentCache, m_chainstate.m_chainman.GetConsensus());
+    // Seed an entry for every configured LLMQ type up front: operator[] on an absent type
+    // would default-construct an unordered_lru_cache with MaxSize=0, which asserts.
+    WITH_LOCK(m_qc_hashes_cache_mutex, utils::InitQuorumsCache(m_qc_hashes_lru, m_chainstate.m_chainman.GetConsensus()));
     LogPrintf("BLS verification uses %d additional threads\n", bls_threads);
     m_bls_queue.StartWorkerThreads(bls_threads);
 }
@@ -417,8 +419,9 @@ bool CQuorumBlockProcessor::UndoBlock(const CBlock& block, gsl::not_null<const C
         AddMineableCommitment(qc);
     }
 
-    // Drop both CbTx qc-hash cache layers: mined commitments are branch-dependent
-    // even when the active quorum base-block list is unchanged.
+    // The base -> commitment-hash LRU survives the evoDb rollback and is not keyed by
+    // branch, so drop it whenever a real commitment is undone. Null commitments are never
+    // written to evoDb and never enter the LRU, so they cannot make it stale.
     if (undone_commitment) {
         InvalidateCachedQcHashes();
     }
@@ -680,6 +683,78 @@ std::map<Consensus::LLMQType, std::vector<const CBlockIndex*>> CQuorumBlockProce
     }
 
     return ret;
+}
+
+std::optional<std::pair<QcHashMap, QcIndexedHashMap>> CQuorumBlockProcessor::GetCachedQcHashes(
+    const CBlockIndex* pindexPrev) const
+{
+    auto quorums = GetMinedAndActiveCommitmentsUntilBlock(pindexPrev);
+
+    LOCK(m_qc_hashes_cache_mutex);
+    if (quorums == m_quorums_cached) {
+        return std::make_pair(m_qcHashes_cached, m_qcIndexedHashes_cached);
+    }
+
+    // Active base-block list changed, rebuild the whole-result cache. The per-base LRU is
+    // kept across this path on purpose: it is what makes the rebuild cheap. It is only
+    // dropped by InvalidateCachedQcHashes(), which UndoBlock() calls.
+    m_quorums_cached.clear();
+    m_qcHashes_cached.clear();
+    m_qcIndexedHashes_cached.clear();
+
+    for (const auto& [llmqType, vecBlockIndexes] : quorums) {
+        const auto& llmq_params_opt = Params().GetLLMQ(llmqType);
+        assert(llmq_params_opt.has_value());
+        const bool rotation_enabled = IsQuorumRotationEnabled(llmq_params_opt.value(), pindexPrev);
+        auto& vec_hashes = m_qcHashes_cached[llmqType];
+        vec_hashes.reserve(vecBlockIndexes.size());
+        auto& map_indexed_hashes = m_qcIndexedHashes_cached[llmqType];
+        // The constructor seeded one LRU per type in the chainstate's consensus params.
+        // The list iterated here comes from the global Params(), a distinct copy, so an
+        // unseeded type is conceivable. Never operator[] a missing type: that would
+        // default-construct an unordered_lru_cache with MaxSize=0, whose ctor asserts.
+        // Fall back to computing without the LRU, which is correct, just uncached.
+        auto lru_it = m_qc_hashes_lru.find(llmqType);
+        auto* lru = lru_it != m_qc_hashes_lru.end() ? &lru_it->second : nullptr;
+        for (const auto& blockIndex : vecBlockIndexes) {
+            const uint256 block_hash{blockIndex->GetBlockHash()};
+
+            std::pair<uint256, int16_t> qc_hash;
+            if (lru == nullptr || !lru->get(block_hash, qc_hash)) {
+                auto [pqc, dummy_hash] = GetMinedCommitment(llmqType, block_hash);
+                if (dummy_hash == uint256::ZERO) {
+                    // this should never happen
+                    return std::nullopt;
+                }
+                qc_hash.first = ::SerializeHash(pqc);
+                qc_hash.second = rotation_enabled ? pqc.quorumIndex : 0;
+                if (lru != nullptr) {
+                    lru->insert(block_hash, qc_hash);
+                }
+            }
+            if (rotation_enabled) {
+                map_indexed_hashes[qc_hash.second] = qc_hash.first;
+            } else {
+                vec_hashes.emplace_back(qc_hash.first);
+            }
+        }
+    }
+    std::swap(m_quorums_cached, quorums);
+    return std::make_pair(m_qcHashes_cached, m_qcIndexedHashes_cached);
+}
+
+void CQuorumBlockProcessor::InvalidateCachedQcHashes()
+{
+    LOCK(m_qc_hashes_cache_mutex);
+    m_quorums_cached.clear();
+    m_qcHashes_cached.clear();
+    m_qcIndexedHashes_cached.clear();
+    // Clear each LRU's contents but keep the per-type map entries: erasing them would mean
+    // a later miss has to re-create one, and a default-constructed unordered_lru_cache has
+    // MaxSize=0, whose ctor asserts.
+    for (auto& [_, lru] : m_qc_hashes_lru) {
+        lru.clear();
+    }
 }
 
 bool CQuorumBlockProcessor::HasMineableCommitment(const uint256& hash) const

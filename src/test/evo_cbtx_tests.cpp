@@ -13,7 +13,6 @@
 #include <consensus/merkle.h>
 #include <consensus/validation.h>
 #include <evo/cbtx.h>
-#include <evo/cbtx_cache.h>
 #include <evo/evodb.h>
 #include <evo/specialtx.h>
 #include <evo/specialtxman.h>
@@ -22,6 +21,7 @@
 #include <llmq/commitment.h>
 #include <llmq/context.h>
 #include <llmq/params.h>
+#include <node/context.h>
 #include <primitives/block.h>
 #include <primitives/transaction.h>
 #include <uint256.h>
@@ -86,21 +86,24 @@ BOOST_FIXTURE_TEST_CASE(check_cbtx_best_chainlock_rejects_excessive_height_diff,
 }
 
 namespace {
-// Mirrors private DB keys in llmq/blockprocessor.cpp so tests can install
-// mined-commitment state without a full DKG/mining path.
-static const std::string DB_MINED_COMMITMENT = "q_mc";
-static const std::string DB_MINED_COMMITMENT_BY_INVERSED_HEIGHT = "q_mcih";
+// These mirror private constants/helpers in llmq/blockprocessor.cpp. There is no public
+// API to install mined-commitment state without a full DKG, so the tests reproduce the
+// key layout and then assert it round-trips through the public GetMinedCommitment()
+// reader -- if the production layout ever changes, VerifyMinedCommitmentInstalled()
+// fails loudly instead of the tests silently exercising nothing.
+const std::string DB_MINED_COMMITMENT = "q_mc";
+const std::string DB_MINED_COMMITMENT_BY_INVERSED_HEIGHT = "q_mcih";
 
-std::tuple<std::string, Consensus::LLMQType, uint32_t> BuildInversedHeightKey(Consensus::LLMQType llmqType, int nMinedHeight)
+std::tuple<std::string, Consensus::LLMQType, uint32_t> BuildInversedHeightKey(Consensus::LLMQType llmqType,
+                                                                              int nMinedHeight)
 {
     return std::make_tuple(DB_MINED_COMMITMENT_BY_INVERSED_HEIGHT, llmqType,
                            htobe32_internal(std::numeric_limits<uint32_t>::max() - nMinedHeight));
 }
 
-// Store a mined commitment as if it was mined at `mined_height` for the genesis
-// quorum base (quorumHeight 0). GetMinedCommitmentsUntilBlock iterates inverted-
-// height keys in [pindex->nHeight, 0), so scan height must be >= mined_height
-// and mined_height must be > 0 for the entry to be returned.
+// Store `qc` as if it had been mined at `mined_height` for the genesis quorum base
+// (quorumHeight 0). GetMinedCommitmentsUntilBlock iterates inversed-height keys over
+// [pindex->nHeight, 0), so the scan height must be >= mined_height and mined_height > 0.
 void WriteMinedCommitment(CEvoDB& evoDb, const CFinalCommitment& qc, const uint256& mined_block_hash, int mined_height)
 {
     assert(mined_height > 0);
@@ -109,17 +112,15 @@ void WriteMinedCommitment(CEvoDB& evoDb, const CFinalCommitment& qc, const uint2
     evoDb.Write(BuildInversedHeightKey(qc.llmqType, mined_height), /*quorumHeight=*/0);
 }
 
-CTransactionRef MakeCommitmentTx(const CFinalCommitment& qc, int height)
+// Guards against the hand-written key layout above drifting from blockprocessor.cpp.
+void VerifyMinedCommitmentInstalled(const CQuorumBlockProcessor& qblockman, const CFinalCommitment& qc,
+                                    const uint256& expected_mined_block_hash)
 {
-    CFinalCommitmentTxPayload payload;
-    payload.nHeight = height;
-    payload.commitment = qc;
-
-    CMutableTransaction tx;
-    tx.nVersion = 3;
-    tx.nType = TRANSACTION_QUORUM_COMMITMENT;
-    SetTxPayload(tx, payload);
-    return MakeTransactionRef(std::move(tx));
+    const auto [stored_qc, stored_hash] = qblockman.GetMinedCommitment(qc.llmqType, qc.quorumHash);
+    BOOST_REQUIRE_MESSAGE(stored_hash != uint256::ZERO,
+                          "DB_MINED_COMMITMENT key layout no longer matches blockprocessor.cpp");
+    BOOST_REQUIRE_EQUAL(stored_hash.ToString(), expected_mined_block_hash.ToString());
+    BOOST_REQUIRE(::SerializeHash(stored_qc) == ::SerializeHash(qc));
 }
 
 uint256 CalcQuorumMerkleRootForCommitment(const CFinalCommitment& qc)
@@ -137,6 +138,19 @@ CFinalCommitment MakeDistinctCommitment(const Consensus::LLMQParams& params, con
     return qc;
 }
 
+CTransactionRef MakeCommitmentTx(const CFinalCommitment& qc, int height)
+{
+    CFinalCommitmentTxPayload payload;
+    payload.nHeight = height;
+    payload.commitment = qc;
+
+    CMutableTransaction tx;
+    tx.nVersion = 3;
+    tx.nType = TRANSACTION_QUORUM_COMMITMENT;
+    SetTxPayload(tx, payload);
+    return MakeTransactionRef(std::move(tx));
+}
+
 CBlock MakeEmptyBlock()
 {
     CBlock block;
@@ -144,13 +158,12 @@ CBlock MakeEmptyBlock()
     return block;
 }
 
-void ExpectQuorumMerkleRoot(const CBlock& block, const CBlockIndex* pindex, const CQuorumBlockProcessor& qblockman,
-                            const CFinalCommitment& qc)
+uint256 CalcQuorumMerkleRoot(const CBlock& block, const CBlockIndex* pindex, const CQuorumBlockProcessor& qblockman)
 {
     uint256 merkle_root;
     BlockValidationState state;
     BOOST_REQUIRE(CalcCbTxMerkleRootQuorums(block, pindex, qblockman, merkle_root, state));
-    BOOST_CHECK_EQUAL(merkle_root.ToString(), CalcQuorumMerkleRootForCommitment(qc).ToString());
+    return merkle_root;
 }
 
 const CBlockIndex* GenesisIndex(const node::NodeContext& node)
@@ -159,19 +172,26 @@ const CBlockIndex* GenesisIndex(const node::NodeContext& node)
     return node.chainman->ActiveChain()[0];
 }
 
-struct QcHashCacheCleanupGuard {
-    ~QcHashCacheCleanupGuard() { InvalidateCachedQcHashes(); }
+// Activate DIP0003 immediately so GetCommitmentsFromBlock accepts a commitment payload at
+// a low height without building a long fake chain.
+struct Dip3ActiveSetup : public RegTestingSetup {
+    Dip3ActiveSetup() :
+        RegTestingSetup({"-dip3params=1:1"})
+    {
+    }
 };
 } // anonymous namespace
 
-// Outer cache keys on active quorum base blocks; inner LRU keys on base hashes.
-// Neither includes the mined CFinalCommitment, so without InvalidateCachedQcHashes
-// a stale hash survives an evoDb commitment swap for the same base list.
-BOOST_FIXTURE_TEST_CASE(qc_hash_cache_invalidated_on_commitment_branch_change, RegTestingSetup)
+// A disconnect that undoes a mined commitment must not leave CalcCbTxMerkleRootQuorums
+// serving the old branch's commitment hash.
+//
+// The defect is specifically in the base-hash -> commitment-hash LRU. The outer
+// whole-result cache is keyed by the active base-block list, which does change across a
+// real reorg, so it is not itself the stale layer. This test therefore drives the LRU
+// directly: it warms the cache at a base list that is *unchanged* by the swap, which is
+// exactly the condition under which the LRU (and only the LRU) can answer staleley.
+BOOST_FIXTURE_TEST_CASE(qc_hash_cache_invalidated_on_commitment_branch_change, Dip3ActiveSetup)
 {
-    InvalidateCachedQcHashes();
-    const QcHashCacheCleanupGuard cache_cleanup;
-
     auto& evoDb = *Assert(m_node.evodb);
     auto& qblockman = *Assert(m_node.llmq_ctx)->quorum_block_processor;
     const auto& params = GetLLMQParams(Consensus::LLMQType::LLMQ_TEST);
@@ -199,47 +219,34 @@ BOOST_FIXTURE_TEST_CASE(qc_hash_cache_invalidated_on_commitment_branch_change, R
         WriteMinedCommitment(evoDb, qc_a, mined_hash_a, mined_height);
         dbTx->Commit();
     }
+    VerifyMinedCommitmentInstalled(qblockman, qc_a, mined_hash_a);
 
     const CBlock block = MakeEmptyBlock();
-    ExpectQuorumMerkleRoot(block, &pindex_scan, qblockman, qc_a);
+    // Warm both cache layers against commitment A.
+    BOOST_CHECK_EQUAL(CalcQuorumMerkleRoot(block, &pindex_scan, qblockman).ToString(),
+                      CalcQuorumMerkleRootForCommitment(qc_a).ToString());
 
-    // Swap evoDb to commitment B without changing the active base-block list.
+    // Swap evoDb to commitment B for the same base, leaving the active base-block list
+    // untouched -- only the mined commitment differs, as across a branch swap.
     {
         auto dbTx = evoDb.BeginTransaction();
         WriteMinedCommitment(evoDb, qc_b, mined_hash_b, mined_height);
         dbTx->Commit();
     }
+    VerifyMinedCommitmentInstalled(qblockman, qc_b, mined_hash_b);
 
-    // Without invalidation, both cache layers still serve commitment A.
-    {
-        uint256 merkle_root;
-        BlockValidationState state;
-        BOOST_REQUIRE(CalcCbTxMerkleRootQuorums(block, &pindex_scan, qblockman, merkle_root, state));
-        BOOST_CHECK_EQUAL(merkle_root.ToString(), CalcQuorumMerkleRootForCommitment(qc_a).ToString());
-        BOOST_CHECK(merkle_root != CalcQuorumMerkleRootForCommitment(qc_b));
-    }
-
-    InvalidateCachedQcHashes();
-    ExpectQuorumMerkleRoot(block, &pindex_scan, qblockman, qc_b);
+    // After invalidation the replacement commitment must be visible. Asserting only this
+    // pins the desired behavior; it deliberately does not assert what the stale cache
+    // would have returned beforehand.
+    qblockman.InvalidateCachedQcHashes();
+    BOOST_CHECK_EQUAL(CalcQuorumMerkleRoot(block, &pindex_scan, qblockman).ToString(),
+                      CalcQuorumMerkleRootForCommitment(qc_b).ToString());
 }
 
-// UndoBlock must invalidate the process-lifetime caches so a replacement
-// commitment is observed after disconnect.
-//
-// Activate DIP0003 immediately so GetCommitmentsFromBlock accepts the payload
-// at a low height without a long fake chain.
-struct Dip3ActiveSetup : public RegTestingSetup {
-    Dip3ActiveSetup() :
-        RegTestingSetup({"-dip3params=1:1"})
-    {
-    }
-};
-
+// End-to-end seam: UndoBlock() itself must perform the invalidation, so a replacement
+// commitment mined on the new branch is observed without any explicit cache call.
 BOOST_FIXTURE_TEST_CASE(qc_hash_cache_invalidated_by_undoblock, Dip3ActiveSetup)
 {
-    InvalidateCachedQcHashes();
-    const QcHashCacheCleanupGuard cache_cleanup;
-
     auto& evoDb = *Assert(m_node.evodb);
     auto& qblockman = *Assert(m_node.llmq_ctx)->quorum_block_processor;
     const auto& params = GetLLMQParams(Consensus::LLMQType::LLMQ_TEST);
@@ -261,6 +268,7 @@ BOOST_FIXTURE_TEST_CASE(qc_hash_cache_invalidated_by_undoblock, Dip3ActiveSetup)
         WriteMinedCommitment(evoDb, qc_a, mined_hash_a, mined_height);
         dbTx->Commit();
     }
+    VerifyMinedCommitmentInstalled(qblockman, qc_a, mined_hash_a);
 
     CBlockIndex pindex_mined;
     pindex_mined.nHeight = mined_height;
@@ -271,18 +279,79 @@ BOOST_FIXTURE_TEST_CASE(qc_hash_cache_invalidated_by_undoblock, Dip3ActiveSetup)
     block_with_qc.vtx.emplace_back(MakeCommitmentTx(qc_a, mined_height));
     const CBlock empty_block = MakeEmptyBlock();
 
-    ExpectQuorumMerkleRoot(empty_block, &pindex_mined, qblockman, qc_a);
+    // Warm the caches against commitment A.
+    BOOST_CHECK_EQUAL(CalcQuorumMerkleRoot(empty_block, &pindex_mined, qblockman).ToString(),
+                      CalcQuorumMerkleRootForCommitment(qc_a).ToString());
 
     {
         LOCK(cs_main);
         auto dbTx = evoDb.BeginTransaction();
         BOOST_REQUIRE(qblockman.UndoBlock(block_with_qc, &pindex_mined));
-        // Install the replacement while the disconnect transaction is still open.
+        // Install the replacement branch's commitment while the disconnect transaction is
+        // still open, mirroring a reorg that reconnects a different valid commitment.
         WriteMinedCommitment(evoDb, qc_b, mined_hash_b, mined_height);
         dbTx->Commit();
     }
 
-    ExpectQuorumMerkleRoot(empty_block, &pindex_mined, qblockman, qc_b);
+    // No explicit InvalidateCachedQcHashes() here: UndoBlock must have done it.
+    BOOST_CHECK_EQUAL(CalcQuorumMerkleRoot(empty_block, &pindex_mined, qblockman).ToString(),
+                      CalcQuorumMerkleRootForCommitment(qc_b).ToString());
+}
+
+// A block that undoes only null commitments must not disturb the caches: null commitments
+// are never written to evoDb, so they can never make the LRU stale.
+BOOST_FIXTURE_TEST_CASE(qc_hash_cache_survives_null_commitment_undo, Dip3ActiveSetup)
+{
+    auto& evoDb = *Assert(m_node.evodb);
+    auto& qblockman = *Assert(m_node.llmq_ctx)->quorum_block_processor;
+    const auto& params = GetLLMQParams(Consensus::LLMQType::LLMQ_TEST);
+
+    const CBlockIndex* pindex_genesis = GenesisIndex(m_node);
+    BOOST_REQUIRE(pindex_genesis != nullptr);
+    const uint256 quorum_hash = pindex_genesis->GetBlockHash();
+
+    const CFinalCommitment qc_a = MakeDistinctCommitment(params, quorum_hash, /*salt=*/0x55);
+    const uint256 mined_hash_a = GetTestBlockHash(21);
+    constexpr int mined_height = 1;
+
+    {
+        auto dbTx = evoDb.BeginTransaction();
+        WriteMinedCommitment(evoDb, qc_a, mined_hash_a, mined_height);
+        dbTx->Commit();
+    }
+    VerifyMinedCommitmentInstalled(qblockman, qc_a, mined_hash_a);
+
+    CBlockIndex pindex_mined;
+    pindex_mined.nHeight = mined_height;
+    pindex_mined.pprev = const_cast<CBlockIndex*>(pindex_genesis);
+    pindex_mined.phashBlock = &mined_hash_a;
+
+    const CBlock empty_block = MakeEmptyBlock();
+    const uint256 expected = CalcQuorumMerkleRootForCommitment(qc_a);
+    BOOST_CHECK_EQUAL(CalcQuorumMerkleRoot(empty_block, &pindex_mined, qblockman).ToString(), expected.ToString());
+
+    // Undo a block carrying only a null commitment for the same type.
+    CFinalCommitment null_qc;
+    null_qc.llmqType = params.type;
+    null_qc.quorumHash = quorum_hash;
+    null_qc.validMembers.resize(params.size, false);
+    null_qc.signers.resize(params.size, false);
+    BOOST_REQUIRE(null_qc.IsNull());
+
+    CBlock block_with_null = MakeEmptyBlock();
+    block_with_null.vtx.emplace_back(MakeCommitmentTx(null_qc, mined_height));
+
+    {
+        LOCK(cs_main);
+        auto dbTx = evoDb.BeginTransaction();
+        BOOST_REQUIRE(qblockman.UndoBlock(block_with_null, &pindex_mined));
+        dbTx->Commit();
+    }
+
+    // The mined commitment is untouched, so the result is unchanged either way; this pins
+    // that undoing a null commitment does not erase real mined state.
+    VerifyMinedCommitmentInstalled(qblockman, qc_a, mined_hash_a);
+    BOOST_CHECK_EQUAL(CalcQuorumMerkleRoot(empty_block, &pindex_mined, qblockman).ToString(), expected.ToString());
 }
 
 BOOST_AUTO_TEST_SUITE_END()
