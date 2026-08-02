@@ -1595,6 +1595,30 @@ isminetype CWallet::IsMine(const CScript& script) const
     return result;
 }
 
+bool CWallet::HaveWatchOnly() const
+{
+    AssertLockHeld(cs_wallet);
+    if (auto* legacy_spk_man = GetLegacyScriptPubKeyMan()) {
+        return legacy_spk_man->HaveWatchOnly();
+    }
+    // Descriptor watch-only and external-signer wallets deliberately treat
+    // their scripts as spendable, so they do not expose a separate watch-only
+    // balance. Only public-only descriptors mixed into a signing wallet do.
+    if (IsWalletFlagSet(WALLET_FLAG_DISABLE_PRIVATE_KEYS)) {
+        return false;
+    }
+    for (const auto& spk_man_pair : m_spk_managers) {
+        // Avoid GetScriptPubKeys() here: it allocates a full script set and is
+        // called from balance polling. GetEndRange()>0 is O(1) and equivalent
+        // once TopUp has cached scripts for a descriptor SPKM.
+        const auto* desc_spk_man = dynamic_cast<const DescriptorScriptPubKeyMan*>(spk_man_pair.second.get());
+        if (desc_spk_man && !desc_spk_man->HavePrivateKeys() && desc_spk_man->GetEndRange() > 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool CWallet::IsMine(const CTransaction& tx) const
 {
     AssertLockHeld(cs_wallet);
@@ -4329,6 +4353,13 @@ ScriptPubKeyMan* CWallet::AddWalletDescriptor(WalletDescriptor& desc, const Flat
 
     // Save the descriptor to DB
     spk_man->WriteDescriptor();
+
+    // Public-only descriptors imported into a signing wallet are watch-only.
+    // Notify UI consumers (Overview balances, transaction watch-only column)
+    // so the classification is visible without restarting.
+    if (!spk_man->HavePrivateKeys() && !IsWalletFlagSet(WALLET_FLAG_DISABLE_PRIVATE_KEYS)) {
+        NotifyWatchonlyChanged(true);
+    }
 
     return spk_man;
 }

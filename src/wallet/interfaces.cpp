@@ -247,11 +247,8 @@ public:
     }
     bool haveWatchOnly() override
     {
-        auto spk_man = m_wallet->GetLegacyScriptPubKeyMan();
-        if (spk_man) {
-            return spk_man->HaveWatchOnly();
-        }
-        return false;
+        LOCK(m_wallet->cs_wallet);
+        return m_wallet->HaveWatchOnly();
     };
     bool setAddressBook(const CTxDestination& dest, const std::string& name, const std::string& purpose) override
     {

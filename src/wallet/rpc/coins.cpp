@@ -532,8 +532,7 @@ RPCHelpMan getbalances()
         balances_mine.pushKV("coinjoin", ValueFromAmount(bal.m_anonymized));
         balances.pushKV("mine", balances_mine);
     }
-    auto spk_man = wallet.GetLegacyScriptPubKeyMan();
-    if (spk_man && spk_man->HaveWatchOnly()) {
+    if (wallet.HaveWatchOnly()) {
         UniValue balances_watchonly{UniValue::VOBJ};
         balances_watchonly.pushKV("trusted", ValueFromAmount(bal.m_watchonly_trusted));
         balances_watchonly.pushKV("untrusted_pending", ValueFromAmount(bal.m_watchonly_untrusted_pending));
