@@ -111,7 +111,13 @@ public:
     virtual void PeerRelayTransaction(const uint256& txid) = 0;
     virtual void PeerRelayDSQ(const CCoinJoinQueue& queue) = 0;
     virtual void PeerRelayRecoveredSig(const llmq::CRecoveredSig& sig, bool proactive_relay) = 0;
-    virtual void PeerAskPeersForTransaction(const uint256& txid) = 0;
+    /** Ask a few peers for an object we want but have not been offered, by registering a synthetic
+     *  announcement with the request tracker. The tracker then owns the fetch: GETDATA scheduling,
+     *  per-peer in-flight limits, expiry, and fallback to the next candidate. Candidates are peers
+     *  known to have the hash, plus prefer_first if set -- use that for a peer that demonstrably has
+     *  the object without having announced it (e.g. it sent a vote naming this parent object).
+     *  Requires ::cs_main is NOT held. */
+    virtual void PeerAskPeersForObject(const CInv& inv, NodeId prefer_first = -1) = 0;
     virtual size_t PeerGetRequestedObjectCount(NodeId nodeid) const = 0;
     virtual void PeerPostProcessMessage(MessageProcessingResult&& ret) = 0;
 };
