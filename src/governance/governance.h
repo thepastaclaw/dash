@@ -239,6 +239,14 @@ public:
             >> mapObjects
             >> mapLastMasternodeObject
             >> *lastMNListForVotingKeys;
+
+        // CacheMultiMap serializes its own capacity, so a file written before MAX_ORPHAN_VOTES
+        // existed restores the old one and the bound would apply to fresh nodes only. Orphan votes
+        // are a ten-minute recovery window that the restart has already invalidated, so drop what
+        // was read and reassert the bound; the field stays in the stream to keep the on-disk format
+        // unchanged. Clear() does not touch the capacity.
+        cmmapOrphanVotes.Clear();
+        cmmapOrphanVotes.SetMaxSize(MAX_ORPHAN_VOTES);
     }
 
     void Clear()

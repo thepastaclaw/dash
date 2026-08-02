@@ -2,8 +2,10 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <clientversion.h>
 #include <common/bloom.h>
 #include <evo/chainhelper.h>
+#include <evo/deterministicmns.h>
 #include <governance/governance.h>
 #include <governance/net_governance.h>
 #include <governance/object.h>
@@ -538,6 +540,42 @@ BOOST_AUTO_TEST_CASE(orphan_vote_cache_is_bounded)
         BOOST_CHECK(!m_node.govman->ProcessVote(vote, exception, hash_to_request));
     }
 
+    BOOST_CHECK_EQUAL(m_node.govman->GetOrphanVoteCount(),
+                      static_cast<size_t>(CGovernanceManager::MAX_ORPHAN_VOTES));
+}
+
+// CacheMultiMap serializes its own capacity, so loading a governance.dat written before
+// MAX_ORPHAN_VOTES existed would restore the old 1'000'000 and silently un-bound the cache for the
+// rest of the run -- leaving the bound in force on fresh nodes only, which is where it is least
+// needed. The on-disk format is unchanged, so this has to be reasserted on load rather than avoided
+// by a version bump.
+BOOST_AUTO_TEST_CASE(orphan_vote_bound_survives_loading_an_old_cache_file)
+{
+    // Stand in for a pre-existing governance.dat: the same field order GovernanceStore writes, with
+    // the orphan map carrying the historical capacity and an entry stored under it. The two maps
+    // whose value types are internal to GovernanceStore are written empty, which serializes as a
+    // count of zero without naming those types.
+    CDataStream ss{SER_DISK, CLIENT_VERSION};
+    CacheMultiMap<uint256, governance::OrphanVote> legacy_orphans{1'000'000};
+    legacy_orphans.Insert(uint256S("61"),
+                          governance::OrphanVote{MakeGovernanceVote(uint256S("61")), NodeSeconds{9999s}});
+    ss << std::string{"CGovernanceManager-Version-16"} << std::map<uint256, int64_t>{}
+       << CacheMap<uint256, CGovernanceVote>{1'000'000} << legacy_orphans
+       << std::map<uint256, uint8_t>{} << std::map<COutPoint, uint8_t>{} << CDeterministicMNList{};
+
+    BOOST_REQUIRE_NO_THROW(ss >> *m_node.govman);
+
+    // The file's orphan state is not retained.
+    BOOST_CHECK_EQUAL(m_node.govman->GetOrphanVoteCount(), 0U);
+
+    // And the bound is ours, not the file's. Without the reassert this holds 1'000'000 and keeps
+    // every one of the votes below.
+    for (size_t i = 0; i < CGovernanceManager::MAX_ORPHAN_VOTES + 25; ++i) {
+        const CGovernanceVote vote{MakeGovernanceVote(uint256S(strprintf("%x", i + 1)))};
+        CGovernanceException exception;
+        uint256 hash_to_request;
+        BOOST_CHECK(!m_node.govman->ProcessVote(vote, exception, hash_to_request));
+    }
     BOOST_CHECK_EQUAL(m_node.govman->GetOrphanVoteCount(),
                       static_cast<size_t>(CGovernanceManager::MAX_ORPHAN_VOTES));
 }

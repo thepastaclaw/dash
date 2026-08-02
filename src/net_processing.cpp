@@ -2437,10 +2437,19 @@ void PeerManagerImpl::AskPeersForObject(const CInv& inv, NodeId prefer_first)
             // for a gone peer would leave a candidate that is never requested and could block the
             // live fallback peers, so skip it.
             if (State(peer->m_id) == nullptr) continue;
+            // Obey the same per-peer accounting AddObjectAnnouncement applies to announcements the
+            // peer sent us. A synthetic announcement is still an entry the peer's behaviour can
+            // cause us to create -- a peer that keeps naming objects we do not have would otherwise
+            // grow its tracker footprint without limit.
+            if (m_object_request.Count(peer->m_id) >= MAX_PEER_OBJECT_ANNOUNCEMENTS) continue;
+            const bool overloaded = m_object_request.CountInFlight(peer->m_id) >= MAX_PEER_OBJECT_REQUEST_IN_FLIGHT;
             LogPrint(BCLog::NET, "PeerManagerImpl::%s -- %s: asking peer %d\n", __func__, inv.ToString(),
                      peer->m_id);
 
-            m_object_request.ReceivedInv(peer->m_id, inv, /*preferred=*/true, current_time);
+            // Preferred and otherwise undelayed: unlike a peer-initiated announcement, we asked for
+            // this one and want it as soon as the peer's in-flight budget allows.
+            m_object_request.ReceivedInv(peer->m_id, inv, /*preferred=*/true,
+                                         current_time + (overloaded ? OVERLOADED_PEER_OBJECT_DELAY : 0us));
         }
     }
 }
