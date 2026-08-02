@@ -829,9 +829,12 @@ bool CGovernanceManager::ProcessVote(const CGovernanceVote& vote, CGovernanceExc
         std::string msg{strprintf("CGovernanceManager::%s -- Unknown parent object %s, MN outpoint = %s", __func__,
             nHashGovobj.ToString(), vote.GetMasternodeOutpoint().ToStringShort())};
         exception = CGovernanceException(msg, GOVERNANCE_EXCEPTION_WARNING);
-        if (cmmapOrphanVotes.Insert(nHashGovobj, governance::OrphanVote{vote, Now<NodeSeconds>() + GOVERNANCE_ORPHAN_EXPIRATION_TIME})) {
-            hashToRequest = nHashGovobj; // Caller should request this object
-        }
+        cmmapOrphanVotes.Insert(nHashGovobj, governance::OrphanVote{vote, Now<NodeSeconds>() + GOVERNANCE_ORPHAN_EXPIRATION_TIME});
+        // Ask for the parent whether or not the vote itself was new to us. A vote we already hold,
+        // relayed by a second peer, is fresh evidence that this peer has the parent -- and it is the
+        // only evidence we will get, since a peer relays a given vote once. Suppressing the request
+        // on a duplicate would strand the parent whenever the first peer we asked fails to deliver.
+        hashToRequest = nHashGovobj;
         LogPrint(BCLog::GOBJECT, "%s\n", msg);
         return false;
     }

@@ -2395,7 +2395,11 @@ void PeerManagerImpl::SendPings()
 
 void PeerManagerImpl::AskPeersForObject(const CInv& inv, NodeId prefer_first)
 {
-    std::vector<PeerRef> peersToAsk;
+    struct CandidatePeer {
+        PeerRef peer;
+        bool preferred;
+    };
+    std::vector<CandidatePeer> peersToAsk;
     peersToAsk.reserve(MAX_PEERS_TO_ASK_FOR_OBJECT);
 
     {
@@ -2403,9 +2407,11 @@ void PeerManagerImpl::AskPeersForObject(const CInv& inv, NodeId prefer_first)
         // A peer that holds the object without having announced it is not in any inventory filter,
         // so it can only be reached by being named. Ask it first: it is the one candidate we have
         // positive evidence for.
+        bool have_preferred_candidate{false};
         if (prefer_first != -1) {
             if (auto it = m_peer_map.find(prefer_first); it != m_peer_map.end()) {
-                peersToAsk.emplace_back(it->second);
+                peersToAsk.emplace_back(CandidatePeer{it->second, /*preferred=*/true});
+                have_preferred_candidate = true;
             }
         }
         // TODO consider prioritizing MNs again, once that flag is moved into Peer
@@ -2417,21 +2423,26 @@ void PeerManagerImpl::AskPeersForObject(const CInv& inv, NodeId prefer_first)
                 continue;
             }
             if (IsInvInFilter(*peer, inv.hash)) {
-                peersToAsk.emplace_back(peer);
+                peersToAsk.emplace_back(CandidatePeer{peer, /*preferred=*/!have_preferred_candidate});
             }
         }
     }
     {
         LOCK(cs_main);
         const auto current_time{GetTime<std::chrono::microseconds>()};
-        // Register a fresh, preferred (undelayed) announcement from each peer we intend to ask, so
-        // the object is requested ASAP. We deliberately do not forget existing announcements for
-        // this hash: any live candidate/request from another peer must survive as a fallback, and
-        // there is nothing to "unstick" -- the tracker deletes a hash's COMPLETED announcements
-        // automatically once no live one remains, so a completed entry only lingers while some peer
-        // is still being tried. If a peer here already has an announcement, ReceivedInv is a no-op
-        // and the existing one (in flight or queued) keeps its place.
-        for (PeerRef& peer : peersToAsk) {
+        // Register a fresh, undelayed announcement from each peer we intend to ask, so the object is
+        // requested ASAP. If prefer_first is present, only that named peer is marked preferred in
+        // the tracker; filter-discovered peers remain immediate fallback candidates, but cannot win
+        // the tracker's randomized tie-break against the peer that supplied direct evidence for the
+        // object. Without a named peer, fallback candidates keep the old all-preferred behaviour.
+        //
+        // We deliberately do not forget existing announcements for this hash: any live
+        // candidate/request from another peer must survive as a fallback, and there is nothing to
+        // "unstick" -- the tracker deletes a hash's COMPLETED announcements automatically once no
+        // live one remains, so a completed entry only lingers while some peer is still being tried.
+        // If a peer here already has an announcement, ReceivedInv is a no-op and the existing one
+        // (in flight or queued) keeps its place.
+        for (const auto& [peer, preferred] : peersToAsk) {
             // The peer may have been disconnected (and its tracker state wiped by DisconnectedPeer)
             // after we collected it above but before we took cs_main. Registering an announcement
             // for a gone peer would leave a candidate that is never requested and could block the
@@ -2443,12 +2454,11 @@ void PeerManagerImpl::AskPeersForObject(const CInv& inv, NodeId prefer_first)
             // grow its tracker footprint without limit.
             if (m_object_request.Count(peer->m_id) >= MAX_PEER_OBJECT_ANNOUNCEMENTS) continue;
             const bool overloaded = m_object_request.CountInFlight(peer->m_id) >= MAX_PEER_OBJECT_REQUEST_IN_FLIGHT;
-            LogPrint(BCLog::NET, "PeerManagerImpl::%s -- %s: asking peer %d\n", __func__, inv.ToString(),
-                     peer->m_id);
+            LogPrint(BCLog::NET, "PeerManagerImpl::%s -- %s: asking peer %d\n", __func__, inv.ToString(), peer->m_id);
 
-            // Preferred and otherwise undelayed: unlike a peer-initiated announcement, we asked for
-            // this one and want it as soon as the peer's in-flight budget allows.
-            m_object_request.ReceivedInv(peer->m_id, inv, /*preferred=*/true,
+            // Otherwise undelayed: unlike a peer-initiated announcement, we asked for this one and
+            // want it as soon as the peer's in-flight budget allows.
+            m_object_request.ReceivedInv(peer->m_id, inv, preferred,
                                          current_time + (overloaded ? OVERLOADED_PEER_OBJECT_DELAY : 0us));
         }
     }

@@ -16,6 +16,7 @@
 #include <node/connection_types.h>
 #include <protocol.h>
 #include <streams.h>
+#include <txrequest.h>
 #include <uint256.h>
 #include <util/strencodings.h>
 #include <util/time.h>
@@ -116,6 +117,38 @@ size_t CountQueuedInventory(const CNode& peer, const CInv& expected_inv)
     }
     return count;
 }
+
+size_t CountQueuedGetData(const CNode& peer, const CInv& expected_inv)
+{
+    LOCK(peer.cs_vSend);
+    size_t count{0};
+    for (const auto& msg : peer.vSendMsg) {
+        if (msg.m_type != NetMsgType::GETDATA) {
+            continue;
+        }
+        CDataStream stream{msg.data, SER_NETWORK, PROTOCOL_VERSION};
+        std::vector<CInv> invs;
+        stream >> invs;
+        for (const auto& inv : invs) {
+            if (inv.type == expected_inv.type && inv.hash == expected_inv.hash) {
+                ++count;
+            }
+        }
+    }
+    return count;
+}
+
+struct DeterministicGetRand {
+    bool m_previous;
+
+    DeterministicGetRand() :
+        m_previous{g_mock_deterministic_tests}
+    {
+        g_mock_deterministic_tests = true;
+    }
+
+    ~DeterministicGetRand() { g_mock_deterministic_tests = m_previous; }
+};
 
 std::unique_ptr<CNode> MakeGovernanceInvPeer(NodeId id)
 {
@@ -521,6 +554,130 @@ BOOST_AUTO_TEST_CASE(orphan_vote_parent_fetch_does_not_fan_out_to_other_peers)
 
     m_node.peerman->FinalizeNode(*voting_peer);
     m_node.peerman->FinalizeNode(*bystander_peer);
+    chainstate.ResetIbd();
+}
+
+BOOST_AUTO_TEST_CASE(orphan_vote_parent_fetch_prefers_vote_relayer_over_filter_fallback)
+{
+    LOCK(NetEventsInterface::g_msgproc_mutex);
+
+    TestChainState& chainstate = *static_cast<TestChainState*>(&m_node.chainman->ActiveChainstate());
+    chainstate.JumpOutOfIbd();
+
+    const DeterministicGetRand deterministic_get_rand;
+    auto peerman{MakePeerManager(*m_node.connman, m_node, m_node.banman.get(),
+                                 /*ignore_incoming_txs=*/false)};
+    peerman->AddExtraHandler(std::make_unique<NetGovernance>(peerman.get(), *m_node.govman, *m_node.mn_sync,
+                                                             *m_node.netfulfilledman, *m_node.connman));
+    NetGovernance net_gov(peerman.get(), *m_node.govman, *m_node.mn_sync, *m_node.netfulfilledman, *m_node.connman);
+
+    auto voting_peer{MakeGovernanceInvPeer(/*id=*/61)};
+    peerman->InitializeNode(*voting_peer, NODE_NETWORK);
+    std::vector<std::unique_ptr<CNode>> fallback_peers;
+    fallback_peers.emplace_back(MakeGovernanceInvPeer(/*id=*/62));
+    fallback_peers.emplace_back(MakeGovernanceInvPeer(/*id=*/63));
+    fallback_peers.emplace_back(MakeGovernanceInvPeer(/*id=*/64));
+    fallback_peers.emplace_back(MakeGovernanceInvPeer(/*id=*/65));
+    fallback_peers.emplace_back(MakeGovernanceInvPeer(/*id=*/66));
+    for (const auto& peer : fallback_peers) {
+        peerman->InitializeNode(*peer, NODE_NETWORK);
+    }
+    auto& connman = static_cast<ConnmanTestMsg&>(*m_node.connman);
+    connman.FlushSendBuffer(*voting_peer);
+    for (const auto& peer : fallback_peers) {
+        connman.FlushSendBuffer(*peer);
+    }
+
+    TxRequestTracker priority_probe;
+    uint256 parent_hash;
+    const std::vector<NodeId> cap_fallback_peers{62, 63, 64};
+    for (uint32_t i{1}; i < 10'000; ++i) {
+        const CInv candidate{MSG_GOVERNANCE_OBJECT, uint256S(strprintf("%x", i + 0x80))};
+        bool fallback_higher_priority{true};
+        for (NodeId peer_id : cap_fallback_peers) {
+            if (priority_probe.ComputePriority(candidate, peer_id, /*preferred=*/true) <=
+                priority_probe.ComputePriority(candidate, voting_peer->GetId(), /*preferred=*/true)) {
+                fallback_higher_priority = false;
+                break;
+            }
+        }
+        if (fallback_higher_priority) {
+            parent_hash = candidate.hash;
+            break;
+        }
+    }
+    BOOST_REQUIRE(!parent_hash.IsNull());
+
+    const CInv parent_inv{MSG_GOVERNANCE_OBJECT, parent_hash};
+    const CGovernanceVote vote{MakeGovernanceVote(parent_hash)};
+    const CInv vote_inv{MSG_GOVERNANCE_OBJECT_VOTE, vote.GetHash()};
+
+    for (const auto& peer : fallback_peers) {
+        peerman->PeerPushInventory(peer->GetId(), parent_inv);
+        BOOST_REQUIRE(peerman->SendMessages(peer.get()));
+        BOOST_CHECK_EQUAL(CountQueuedInventory(*peer, parent_inv), 1U);
+        connman.FlushSendBuffer(*peer);
+    }
+
+    ProcessInv(*peerman, *voting_peer, vote_inv);
+    ProcessGovernanceVote(net_gov, *voting_peer, vote);
+
+    BOOST_REQUIRE(peerman->SendMessages(voting_peer.get()));
+    BOOST_CHECK_EQUAL(CountQueuedGetData(*voting_peer, parent_inv), 1U);
+
+    for (const auto& peer : fallback_peers) {
+        BOOST_REQUIRE(peerman->SendMessages(peer.get()));
+        BOOST_CHECK_EQUAL(CountQueuedGetData(*peer, parent_inv), 0U);
+    }
+
+    peerman->FinalizeNode(*voting_peer);
+    for (const auto& peer : fallback_peers) {
+        peerman->FinalizeNode(*peer);
+    }
+    peerman->RemoveHandlers();
+    chainstate.ResetIbd();
+}
+
+// A peer relays a given vote once, so a second peer sending a vote we already hold is the only
+// evidence we will ever get that it has the parent. It has to become a fallback candidate: the peer
+// asked first may go away or never answer, and there is no periodic sweep to fall back on.
+BOOST_AUTO_TEST_CASE(orphan_vote_relayed_by_a_second_peer_adds_it_as_a_fallback)
+{
+    LOCK(NetEventsInterface::g_msgproc_mutex);
+
+    TestChainState& chainstate = *static_cast<TestChainState*>(&m_node.chainman->ActiveChainstate());
+    chainstate.JumpOutOfIbd();
+
+    NetGovernance net_gov(m_node.peerman.get(), *m_node.govman, *m_node.mn_sync, *m_node.netfulfilledman,
+                          *m_node.connman);
+
+    auto first_peer{MakeGovernanceInvPeer(/*id=*/51)};
+    auto second_peer{MakeGovernanceInvPeer(/*id=*/52)};
+    m_node.peerman->InitializeNode(*first_peer, NODE_NETWORK);
+    m_node.peerman->InitializeNode(*second_peer, NODE_NETWORK);
+
+    const uint256 parent_hash{uint256S("71")};
+    const CGovernanceVote vote{MakeGovernanceVote(parent_hash)};
+    const CInv vote_inv{MSG_GOVERNANCE_OBJECT_VOTE, vote.GetHash()};
+    const CInv parent_inv{MSG_GOVERNANCE_OBJECT, parent_hash};
+
+    ProcessInv(*m_node.peerman, *first_peer, vote_inv);
+    ProcessGovernanceVote(net_gov, *first_peer, vote);
+    BOOST_CHECK(WITH_LOCK(::cs_main,
+                          return m_node.peerman->PeerConsumeObjectRequest(first_peer->GetId(), parent_inv)));
+
+    // Same vote, different peer. The orphan cache rejects the duplicate, but the request must not be
+    // suppressed along with it -- the request is for the parent object, not for the vote.
+    ProcessInv(*m_node.peerman, *second_peer, vote_inv);
+    ProcessGovernanceVote(net_gov, *second_peer, vote);
+    BOOST_CHECK(WITH_LOCK(::cs_main,
+                          return m_node.peerman->PeerConsumeObjectRequest(second_peer->GetId(), parent_inv)));
+
+    // The duplicate must still not be double-counted as orphan state.
+    BOOST_CHECK_EQUAL(m_node.govman->GetOrphanVoteCount(), 1U);
+
+    m_node.peerman->FinalizeNode(*first_peer);
+    m_node.peerman->FinalizeNode(*second_peer);
     chainstate.ResetIbd();
 }
 
