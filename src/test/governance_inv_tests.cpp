@@ -408,7 +408,12 @@ BOOST_AUTO_TEST_CASE(governance_votes_require_peer_announcement_or_request)
 
     connman.FlushSendBuffer(*announcing_peer);
     ProcessGovernanceVote(net_gov, *announcing_peer, vote);
-    BOOST_CHECK_EQUAL(CountQueuedMessages(*announcing_peer, NetMsgType::MNGOVERNANCESYNC), 1U);
+    // The parent object is unknown, so the vote is held as an orphan and its parent is fetched via
+    // the request tracker (asking this peer, which demonstrably has it) rather than by messaging
+    // every peer directly.
+    BOOST_CHECK_EQUAL(CountQueuedMessages(*announcing_peer, NetMsgType::MNGOVERNANCESYNC), 0U);
+    BOOST_CHECK(WITH_LOCK(::cs_main, return m_node.peerman->PeerConsumeObjectRequest(
+                                         announcing_peer->GetId(), CInv{MSG_GOVERNANCE_OBJECT, uint256S("31")})));
     AssertMisbehaviorScore(*m_node.peerman, *announcing_peer, 0);
 
     connman.FlushSendBuffer(*second_announcing_peer);
@@ -459,16 +464,82 @@ BOOST_AUTO_TEST_CASE(governance_vote_authorization_survives_unsynced_drop)
     BOOST_CHECK_EQUAL(CountQueuedMessages(*peer, NetMsgType::MNGOVERNANCESYNC), 0U);
 
     // Back in sync, the retransmit is still authorized: ProcessVote runs and (orphan parent)
-    // requests the missing object. Had the unsynced drop consumed the request, the gate would now
-    // reject the vote as unrequested and send no MNGOVERNANCESYNC.
+    // registers a tracker request for the missing object. Had the unsynced drop consumed the
+    // request, the gate would now reject the vote as unrequested and register nothing.
     m_node.mn_sync->SwitchToNextAsset();
     BOOST_REQUIRE(m_node.mn_sync->IsBlockchainSynced());
     connman.FlushSendBuffer(*peer);
     ProcessGovernanceVote(net_gov, *peer, vote);
-    BOOST_CHECK_EQUAL(CountQueuedMessages(*peer, NetMsgType::MNGOVERNANCESYNC), 1U);
+    BOOST_CHECK(WITH_LOCK(::cs_main, return m_node.peerman->PeerConsumeObjectRequest(
+                                         peer->GetId(), CInv{MSG_GOVERNANCE_OBJECT, uint256S("41")})));
 
     m_node.peerman->FinalizeNode(*peer);
     chainstate.ResetIbd();
+}
+
+// An orphan vote must not turn into traffic aimed at peers that had nothing to do with it. The
+// parent fetch goes to the peer that supplied the vote, via the request tracker; a bystander peer
+// sees neither a message nor a tracker entry, so N orphans cost O(1) per orphan rather than
+// O(peers) per orphan on a timer.
+BOOST_AUTO_TEST_CASE(orphan_vote_parent_fetch_does_not_fan_out_to_other_peers)
+{
+    LOCK(NetEventsInterface::g_msgproc_mutex);
+
+    TestChainState& chainstate = *static_cast<TestChainState*>(&m_node.chainman->ActiveChainstate());
+    chainstate.JumpOutOfIbd();
+
+    NetGovernance net_gov(m_node.peerman.get(), *m_node.govman, *m_node.mn_sync, *m_node.netfulfilledman,
+                          *m_node.connman);
+
+    auto voting_peer{MakeGovernanceInvPeer(/*id=*/41)};
+    auto bystander_peer{MakeGovernanceInvPeer(/*id=*/42)};
+    m_node.peerman->InitializeNode(*voting_peer, NODE_NETWORK);
+    m_node.peerman->InitializeNode(*bystander_peer, NODE_NETWORK);
+    auto& connman = static_cast<ConnmanTestMsg&>(*m_node.connman);
+
+    const uint256 parent_hash{uint256S("51")};
+    const CGovernanceVote vote{MakeGovernanceVote(parent_hash)};
+    const CInv vote_inv{MSG_GOVERNANCE_OBJECT_VOTE, vote.GetHash()};
+    const CInv parent_inv{MSG_GOVERNANCE_OBJECT, parent_hash};
+
+    ProcessInv(*m_node.peerman, *voting_peer, vote_inv);
+    connman.FlushSendBuffer(*voting_peer);
+    connman.FlushSendBuffer(*bystander_peer);
+    ProcessGovernanceVote(net_gov, *voting_peer, vote);
+
+    // The supplying peer is asked, through the tracker.
+    BOOST_CHECK(WITH_LOCK(::cs_main,
+                          return m_node.peerman->PeerConsumeObjectRequest(voting_peer->GetId(), parent_inv)));
+
+    // The bystander never announced the vote or the object, so it is neither messaged nor asked.
+    BOOST_CHECK_EQUAL(CountQueuedMessages(*bystander_peer, NetMsgType::MNGOVERNANCESYNC), 0U);
+    BOOST_CHECK_EQUAL(CountQueuedInventory(*bystander_peer, parent_inv), 0U);
+    BOOST_CHECK(!WITH_LOCK(::cs_main,
+                           return m_node.peerman->PeerConsumeObjectRequest(bystander_peer->GetId(), parent_inv)));
+
+    m_node.peerman->FinalizeNode(*voting_peer);
+    m_node.peerman->FinalizeNode(*bystander_peer);
+    chainstate.ResetIbd();
+}
+
+// The orphan cache is filled from the network by any peer, keyed by a parent hash we cannot verify
+// until the parent arrives, so its size must be bounded by us and not by the sender. Each retained
+// entry costs ~750 bytes (CacheMultiMap stores the value twice, and the vote holds a heap-allocated
+// signature), which is why MAX_CACHE_SIZE is the wrong bound for this particular cache.
+BOOST_AUTO_TEST_CASE(orphan_vote_cache_is_bounded)
+{
+    constexpr size_t OVERSHOOT = 50;
+
+    for (size_t i = 0; i < CGovernanceManager::MAX_ORPHAN_VOTES + OVERSHOOT; ++i) {
+        // Distinct parent hash per vote, so each would occupy its own cache key.
+        const CGovernanceVote vote{MakeGovernanceVote(uint256S(strprintf("%x", i + 1)))};
+        CGovernanceException exception;
+        uint256 hash_to_request;
+        BOOST_CHECK(!m_node.govman->ProcessVote(vote, exception, hash_to_request));
+    }
+
+    BOOST_CHECK_EQUAL(m_node.govman->GetOrphanVoteCount(),
+                      static_cast<size_t>(CGovernanceManager::MAX_ORPHAN_VOTES));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

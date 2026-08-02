@@ -64,7 +64,7 @@ GovernanceStore::GovernanceStore() :
     mapObjects(),
     mapErasedGovernanceObjects(),
     cmapInvalidVotes(MAX_CACHE_SIZE),
-    cmmapOrphanVotes(MAX_CACHE_SIZE),
+    cmmapOrphanVotes(MAX_ORPHAN_VOTES),
     mapLastMasternodeObject(),
     lastMNListForVotingKeys(std::make_shared<CDeterministicMNList>())
 {
@@ -406,6 +406,11 @@ void CGovernanceManager::CheckAndRemove()
     }
 
     ScopedLockBool guard(cs_store, fRateChecksEnabled, false);
+
+    // Drop orphan votes whose parent never arrived. Votes for an object that did arrive are
+    // consumed by CheckOrphanVotes() at that point, so anything still here is either waiting or
+    // dead; this is the only thing that removes the latter.
+    ExpireOrphanVotes();
 
     // Clean up any expired or invalid triggers
     m_superblocks.Clean(nCachedBlockHeight);
@@ -1087,13 +1092,11 @@ void CGovernanceManager::UpdatedBlockTip(const CBlockIndex* pindex)
     m_superblocks.ExecuteBestSuperblock(m_dmnman.GetListAtChainTip(), pindex->nHeight);
 }
 
-std::vector<uint256> CGovernanceManager::GetOrphanVoteObjectHashes()
+void CGovernanceManager::ExpireOrphanVotes()
 {
-    LOCK(cs_store);
+    AssertLockHeld(cs_store);
 
     const auto now{Now<NodeSeconds>()};
-
-    // Clean up expired orphan votes
     const vote_cmm_t::list_t& items = cmmapOrphanVotes.GetItemList();
     for (auto it = items.begin(); it != items.end();) {
         auto prevIt = it;
@@ -1102,18 +1105,11 @@ std::vector<uint256> CGovernanceManager::GetOrphanVoteObjectHashes()
             cmmapOrphanVotes.Erase(prevIt->key, prevIt->value);
         }
     }
+}
 
-    // Get hashes of objects we don't have yet
-    std::vector<uint256> vecHashesFiltered;
-    std::vector<uint256> vecHashes;
-    cmmapOrphanVotes.GetKeys(vecHashes);
-    for (const uint256& nHash : vecHashes) {
-        if (mapObjects.find(nHash) == mapObjects.end()) {
-            vecHashesFiltered.push_back(nHash);
-        }
-    }
-
-    return vecHashesFiltered;
+size_t CGovernanceManager::GetOrphanVoteCount() const
+{
+    return WITH_LOCK(cs_store, return cmmapOrphanVotes.GetSize());
 }
 
 void CGovernanceManager::RemoveInvalidVotes()
