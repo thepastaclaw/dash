@@ -128,6 +128,53 @@ test/lint/lint-circular-dependencies.py
 Functional-test prerequisites and usage details live in `test/README.md`.
 Several Dash-specific tests need the `dash_hash` Python package.
 
+### Running Linters Exactly Like CI
+
+Running `test/lint/*` scripts directly on the host is fine when the locally
+installed tools behave. If host results disagree with CI (version drift in
+codespell/flake8/mypy/shellcheck, or a lint passing locally but failing in
+CI), reproduce the CI lint job (`ci/dash/lint.sh` with CI-pinned tool
+versions) with the lint container:
+
+```bash
+# One-time setup; rebuild only when ci/lint/ changes.
+docker build --platform linux/amd64 -t dash-linter ci/lint
+```
+
+```bash
+G="$(git rev-parse --path-format=absolute --git-common-dir)"; docker run --rm --platform linux/amd64 --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD":"$PWD" -v "$G":"$G" -w "$PWD" -e BUILD_TARGET=linux64 -e CHECK_DOC=1 -e PULL_REQUEST=true -e COMMIT_RANGE="$(git merge-base develop HEAD)..HEAD" dash-linter bash -c 'git config --global --add safe.directory "$PWD" && ./ci/dash/lint.sh'
+```
+
+Notes:
+
+- The dual mount (`$PWD` plus the git common dir) makes this work from git
+  worktrees as well as normal checkouts; run it from the repo/worktree root.
+- `--platform linux/amd64` matches the CI lint job and avoids native arm64
+  hosts pulling the incompatible x86_64 ShellCheck payload installed by
+  `ci/lint/04_install.sh`.
+- `--user` plus `HOME=/tmp` keeps `git config --global` on an already-existing
+  writable path and avoids leaving root-owned `ci-cache-<BUILD_TARGET>/`
+  output or git config behind on the bind-mounted worktree.
+- Commit or stash before running. With `PULL_REQUEST=true` the range is fed to
+  `test/lint/commit-script-check.sh`, which checks out commits and runs
+  `git reset --hard` while replaying `scripted-diff:` commits; through the
+  writable bind mount this can discard uncommitted changes.
+- `COMMIT_RANGE` is computed against your local `develop`; make sure it exists
+  and is current with `dashpay/dash` (CI computes the range against a freshly
+  fetched `origin/develop`).
+- Do not use the bare `docker run ... dash-linter` flow from
+  `test/lint/README.md` to reproduce CI: its default entrypoint merge-bases
+  against `master` instead of `develop` and runs `check-doc.py` plus
+  git-subtree checks that the CI lint job does not run.
+- The image builds cppcheck from source at the same version as CI's `ci-slim`
+  container, so the cppcheck lint runs locally too; expect the first
+  `docker build` to take a few minutes.
+- Codespell warnings are non-fatal in CI; pre-existing hits on `develop` are
+  expected.
+- The run creates a `ci-cache-<BUILD_TARGET>/` directory in the repo root
+  (same CI env default as the real job). Keep it for faster cppcheck reruns
+  or delete it freely; it is untracked.
+
 ## Backport Work
 
 Dash Core regularly backports Bitcoin Core changes. Treat backports as
