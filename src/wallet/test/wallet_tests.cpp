@@ -51,6 +51,20 @@ static_assert(DEFAULT_TRANSACTION_MINFEE >= DEFAULT_MIN_RELAY_TX_FEE, "wallet mi
 
 BOOST_FIXTURE_TEST_SUITE(wallet_tests, WalletTestingSetup)
 
+BOOST_AUTO_TEST_CASE(interface_coin_lock_ownership)
+{
+    const auto wallet_ref{std::shared_ptr<CWallet>(&m_wallet, [](CWallet*) {})};
+    auto wallet_interface{interfaces::MakeWallet(*m_wallet_loader->context(), wallet_ref)};
+    const COutPoint outpoint{uint256::ONE, 0};
+
+    BOOST_CHECK(wallet_interface->acquireCoinLock(outpoint, /*write_to_db=*/false) == interfaces::CoinLockResult::ACQUIRED);
+    BOOST_CHECK(wallet_interface->acquireCoinLock(outpoint, /*write_to_db=*/false) ==
+                interfaces::CoinLockResult::ALREADY_LOCKED);
+    BOOST_CHECK(wallet_interface->unlockCoin(outpoint));
+    BOOST_CHECK(wallet_interface->acquireCoinLock(outpoint, /*write_to_db=*/false) == interfaces::CoinLockResult::ACQUIRED);
+    BOOST_CHECK(wallet_interface->unlockCoin(outpoint));
+}
+
 static std::shared_ptr<CWallet> TestLoadWallet(WalletContext& context)
 {
     DatabaseOptions options;
