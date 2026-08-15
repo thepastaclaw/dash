@@ -401,7 +401,6 @@ public:
     util::Result<CTransactionRef> fundTransaction(const CMutableTransaction& tx_template,
                                                   const CTxDestination& fund_destination) override
     {
-        AssertLockNotHeld(::cs_main);
         m_wallet->BlockUntilSyncedToCurrentChain();
 
         LOCK(m_wallet->cs_wallet);
@@ -449,7 +448,6 @@ public:
     }
     util::Result<WalletTxSignResult> signTransaction(const CMutableTransaction& tx) override
     {
-        AssertLockNotHeld(::cs_main);
         std::map<COutPoint, Coin> coins;
         for (const auto& input : tx.vin)
             coins.try_emplace(input.prevout);
