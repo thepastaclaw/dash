@@ -59,7 +59,8 @@ bench_bench_dash_SOURCES = \
   bench/strencodings.cpp \
   bench/string_cast.cpp \
   bench/util_time.cpp \
-  bench/verify_script.cpp
+  bench/verify_script.cpp \
+  bench/xor.cpp
 
 nodist_bench_bench_dash_SOURCES = $(GENERATED_BENCH_FILES)
 
