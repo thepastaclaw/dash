@@ -531,7 +531,9 @@ To enable LCOV report generation during test runs:
 make
 make cov
 
-# A coverage report will now be accessible at `./test_dash.coverage/index.html`.
+# A coverage report will now be accessible at `./test_dash.coverage/index.html`,
+# which covers unit tests, and `./total.coverage/index.html`, which covers
+# unit and functional tests.
 ```
 
 ### Performance profiling with perf
