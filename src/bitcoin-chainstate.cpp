@@ -95,7 +95,10 @@ int main(int argc, char* argv[])
         .chainparams = *chainparams,
         .datadir = gArgs.GetDataDirNet(),
     };
-    ChainstateManager chainman{chainman_opts};
+    const node::BlockManager::Options blockman_opts{
+        .chainparams = *chainparams,
+    };
+    ChainstateManager chainman{chainman_opts, blockman_opts};
 
     CMasternodeMetaMan metaman;
     CEvoDB evodb{util::DbWrapperParams{.path = gArgs.GetDataDirNet(), .memory = false, .wipe = false}};
