@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <bls/bls.h>
+#include <chainparams.h>
 #include <coinjoin/coinjoin.h>
 #include <evo/deterministicmns.h>
 #include <evo/dmn_types.h>
