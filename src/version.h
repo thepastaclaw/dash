@@ -72,6 +72,4 @@ static const int PLATFORMBAN_V2_SHORT_ID_VERSION = 70240;
 //! may join rebalance-capable mixing sessions
 static const int COINJOIN_REBALANCE_VERSION = 70241;
 
-// Make sure that none of the values above collide with `ADDRV2_FORMAT`.
-
 #endif // BITCOIN_VERSION_H

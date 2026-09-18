@@ -227,7 +227,7 @@ public:
     template <typename Stream>
     void Serialize(Stream& s_) const
     {
-        OverrideStream<Stream> s(&s_, /*nType=*/0, s_.GetVersion() | ADDRV2_FORMAT);
+        ParamsStream s{CNetAddr::V2, s_};
         if (const auto* data_ptr_service{std::get_if<CService>(&m_data)};
             m_type == NetInfoType::Service && data_ptr_service && data_ptr_service->IsValid()) {
             s << m_type << *data_ptr_service;
@@ -242,7 +242,7 @@ public:
     template <typename Stream>
     void Unserialize(Stream& s_)
     {
-        OverrideStream<Stream> s(&s_, /*nType=*/0, s_.GetVersion() | ADDRV2_FORMAT);
+        ParamsStream s{CNetAddr::V2, s_};
         s >> m_type;
         if (m_type == NetInfoType::Service) {
             try {
@@ -327,23 +327,23 @@ public:
     void Serialize(Stream& s) const
     {
         if (const auto service_opt{m_addr.GetAddrPort()}) {
-            s << *service_opt;
+            s << WithParams(CNetAddr::V1, *service_opt);
         } else {
-            s << CService{};
+            s << WithParams(CNetAddr::V1, CService{});
         }
     }
 
     // cppcheck-suppress functionStatic
     void Serialize(CSizeComputer& s) const
     {
-        s.seek(::GetSerializeSize(CService{}, s.GetVersion()));
+        s.seek(::GetSerializeSize(WithParams(CNetAddr::V1, CService{}), s.GetVersion()));
     }
 
     template <typename Stream>
     void Unserialize(Stream& s)
     {
         CService service;
-        s >> service;
+        s >> WithParams(CNetAddr::V1, service);
         m_addr = NetInfoEntry{service};
     }
 
