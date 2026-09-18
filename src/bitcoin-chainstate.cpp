@@ -11,6 +11,7 @@
 //
 // It is part of the libbitcoinkernel project.
 
+#include <kernel/chainparams.h>
 #include <kernel/checks.h>
 #include <kernel/context.h>
 #include <kernel/validation_cache_sizes.h>
@@ -62,7 +63,7 @@ int main(int argc, char* argv[])
 
     // SETUP: Misc Globals
     SelectParams(CBaseChainParams::MAIN);
-    const CChainParams& chainparams = Params();
+    auto chainparams = CChainParams::Main();
 
     kernel::Context kernel_context{};
     // We can't use a goto here, but we can use an assert since none of the
@@ -91,9 +92,13 @@ int main(int argc, char* argv[])
 
     // SETUP: Chainstate
     const ChainstateManager::Options chainman_opts{
-        .chainparams = chainparams,
+        .chainparams = *chainparams,
+        .datadir = gArgs.GetDataDirNet(),
     };
-    ChainstateManager chainman{chainman_opts};
+    const node::BlockManager::Options blockman_opts{
+        .chainparams = *chainparams,
+    };
+    ChainstateManager chainman{chainman_opts, blockman_opts};
 
     CMasternodeMetaMan metaman;
     CEvoDB evodb{util::DbWrapperParams{.path = gArgs.GetDataDirNet(), .memory = false, .wipe = false}};

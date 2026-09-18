@@ -286,6 +286,7 @@ BITCOIN_CORE_H = \
   interfaces/wallet.h \
   kernel/blockmanager_opts.h \
   kernel/chain.h \
+  kernel/chainparams.h \
   kernel/chainstatemanager_opts.h \
   kernel/checks.h \
   kernel/coinstats.h \
@@ -342,13 +343,16 @@ BITCOIN_CORE_H = \
   netfulfilledman.h \
   netgroup.h \
   netmessagemaker.h \
+  node/blockmanager_args.h \
   node/blockstorage.h \
   node/caches.h \
   node/chainstate.h \
   node/chainstatemanager_args.h \
   node/coin.h \
+  node/coins_view_args.h \
   node/connection_types.h \
   node/context.h \
+  node/database_args.h \
   node/eviction.h \
   node/interface_ui.h \
   node/mempool_args.h \
@@ -616,13 +620,16 @@ libbitcoin_node_a_SOURCES = \
   net_processing.cpp \
   netfulfilledman.cpp \
   netgroup.cpp \
+  node/blockmanager_args.cpp \
   node/blockstorage.cpp \
   node/caches.cpp \
   node/chainstate.cpp \
   node/chainstatemanager_args.cpp \
   node/coin.cpp \
+  node/coins_view_args.cpp \
   node/connection_types.cpp \
   node/context.cpp \
+  node/database_args.cpp \
   node/eviction.cpp \
   node/interface_ui.cpp \
   node/interfaces.cpp \
@@ -984,6 +991,7 @@ libbitcoin_common_a_SOURCES = \
   external_signer.cpp \
   governance/common.cpp \
   init/common.cpp \
+  kernel/chainparams.cpp \
   key.cpp \
   key_io.cpp \
   llmq/core_write.cpp \
@@ -1310,6 +1318,7 @@ libdashkernel_la_SOURCES = \
   instantsend/instantsend.cpp \
   kernel/chain.cpp \
   kernel/checks.cpp \
+  kernel/chainparams.cpp \
   kernel/coinstats.cpp \
   kernel/context.cpp \
   kernel/mempool_persist.cpp \

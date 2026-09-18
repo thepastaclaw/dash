@@ -27,6 +27,7 @@
 #include <cuckoocache.h>
 #include <flatfile.h>
 #include <hash.h>
+#include <kernel/chainparams.h>
 #include <kernel/mempool_entry.h>
 #include <logging.h>
 #include <logging/timer.h>
@@ -88,8 +89,6 @@ using node::BlockManager;
 using node::BlockMap;
 using node::CBlockIndexHeightOnlyComparator;
 using node::CBlockIndexWorkComparator;
-using node::fImporting;
-using node::fPruneMode;
 using node::fReindex;
 using node::ReadBlockFromDisk;
 using node::SnapshotMetadata;
@@ -1627,13 +1626,9 @@ CAmount GetBlockSubsidy(const CBlockIndex* const pindex, const Consensus::Params
     return GetBlockSubsidyInner(pindex->pprev->nBits, pindex->pprev->nHeight, consensusParams, isV20Active);
 }
 
-CoinsViews::CoinsViews(
-    fs::path ldb_name,
-    size_t cache_size_bytes,
-    bool in_memory,
-    bool should_wipe) : m_dbview(
-                            gArgs.GetDataDirNet() / ldb_name, cache_size_bytes, in_memory, should_wipe),
-                        m_catcherview(&m_dbview) {}
+CoinsViews::CoinsViews(DBParams db_params, CoinsViewOptions options)
+    : m_dbview{std::move(db_params), std::move(options)},
+      m_catcherview(&m_dbview) {}
 
 void CoinsViews::InitCache()
 {
@@ -1690,7 +1685,14 @@ void Chainstate::InitCoinsDB(
     }
 
     m_coins_views = std::make_unique<CoinsViews>(
-        leveldb_name, cache_size_bytes, in_memory, should_wipe);
+        DBParams{
+            .path = m_chainman.m_options.datadir / leveldb_name,
+            .cache_bytes = cache_size_bytes,
+            .memory_only = in_memory,
+            .wipe_data = should_wipe,
+            .obfuscate = true,
+            .options = m_chainman.m_options.coins_db},
+        m_chainman.m_options.coins_view);
 }
 
 void Chainstate::InitCoinsCache(size_t cache_size_bytes)
@@ -1715,8 +1717,9 @@ bool Chainstate::IsInitialBlockDownload() const
     LOCK(cs_main);
     if (m_cached_finished_ibd.load(std::memory_order_relaxed))
         return false;
-    if (fImporting || fReindex)
+    if (m_chainman.m_blockman.LoadingBlocks()) {
         return true;
+    }
     if (m_chain.Tip() == nullptr)
         return true;
     if (m_chain.Tip()->nChainWork < m_chainman.MinimumChainWork()) {
@@ -2708,7 +2711,7 @@ bool Chainstate::FlushStateToDisk(
 
         CoinsCacheSizeState cache_state = GetCoinsCacheSizeState();
         LOCK(m_blockman.cs_LastBlockFile);
-        if (fPruneMode && (m_blockman.m_check_for_pruning || nManualPruneHeight > 0) && !fReindex) {
+        if (m_blockman.IsPruneMode() && (m_blockman.m_check_for_pruning || nManualPruneHeight > 0) && !fReindex) {
             // make sure we don't prune above any of the prune locks bestblocks
             // pruning is height-based
             int last_prune{m_chain.Height()}; // last height we can prune
@@ -4786,7 +4789,7 @@ bool CVerifyDB::VerifyDB(
         if (pindex->nHeight <= chainstate.m_chain.Height() - nCheckDepth) {
             break;
         }
-        if ((fPruneMode || is_snapshot_cs) && !(pindex->nStatus & BLOCK_HAVE_DATA)) {
+        if ((chainstate.m_blockman.IsPruneMode() || is_snapshot_cs) && !(pindex->nStatus & BLOCK_HAVE_DATA)) {
             // If pruning or running under an assumeutxo snapshot, only go
             // back as far as we have data.
             LogPrintf("VerifyDB(): block verification stopping at height %d (pruning, no data)\n", pindex->nHeight);
@@ -5231,7 +5234,7 @@ void ChainstateManager::LoadExternalBlockFile(
                     }
                 }
 
-                if (fPruneMode && !fReindex && pblock) {
+                if (m_blockman.IsPruneMode() && !fReindex && pblock) {
                     // must update the tip for pruning to work while importing with -loadblock.
                     // this is a tradeoff to conserve disk space at the expense of time
                     // spent updating the tip to be able to prune.
@@ -6244,7 +6247,7 @@ SnapshotCompletionResult ChainstateManager::MaybeCompleteSnapshotValidation(
 
     CCoinsViewDB& ibd_coins_db = m_ibd_chainstate->CoinsDB();
 
-    auto maybe_au_data = ExpectedAssumeutxo(curr_height, ::Params());
+    auto maybe_au_data = ExpectedAssumeutxo(curr_height, m_options.chainparams);
     if (!maybe_au_data) {
         LogPrintf("[snapshot] assumeutxo data not found for height " /* Continued */
             "(%d) - refusing to validate snapshot\n", curr_height);
@@ -6471,9 +6474,9 @@ static ChainstateManager::Options&& Flatten(ChainstateManager::Options&& opts)
     return std::move(opts);
 }
 
-ChainstateManager::ChainstateManager(Options options)
+ChainstateManager::ChainstateManager(Options options, node::BlockManager::Options blockman_options)
     : m_options{Flatten(std::move(options))},
-      m_blockman{{m_options.chainparams}} {}
+      m_blockman{std::move(blockman_options)} {}
 
 ChainstateManager::~ChainstateManager()
 {

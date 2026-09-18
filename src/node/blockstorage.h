@@ -49,11 +49,6 @@ static constexpr size_t BLOCK_SERIALIZATION_HEADER_SIZE = CMessageHeader::MESSAG
 
 extern std::atomic_bool fImporting;
 extern std::atomic_bool fReindex;
-/** Pruning-related variables and constants */
-/** True if we're running in -prune mode. */
-extern bool fPruneMode;
-/** Number of bytes of block files that we're trying to stay below. */
-extern uint64_t nPruneTarget;
 
 // Because validation code takes pointers to the map's CBlockIndex objects, if
 // we ever switch to another associative container, we need to either use a
@@ -146,6 +141,8 @@ private:
      */
     bool m_check_for_pruning = false;
 
+    const bool m_prune_mode;
+
     /** Dirty block index entries. */
     std::set<CBlockIndex*> m_dirty_blockindex;
 
@@ -163,7 +160,9 @@ private:
 public:
     using Options = kernel::BlockManagerOpts;
 
-    explicit BlockManager(Options opts) : m_opts{opts} {}
+    explicit BlockManager(Options opts)
+        : m_opts{std::move(opts)},
+          m_prune_mode{m_opts.prune_target > 0} {};
 
     BlockMap m_block_index GUARDED_BY(cs_main);
     PrevBlockMap m_prev_block_index GUARDED_BY(cs_main);
@@ -208,6 +207,15 @@ public:
 
     /** Store block on disk. If dbp is not nullptr, then it provides the known position of the block within a block file on disk. */
     FlatFilePos SaveBlockToDisk(const CBlock& block, int nHeight, const FlatFilePos* dbp);
+
+    /** Whether running in -prune mode. */
+    [[nodiscard]] bool IsPruneMode() const { return m_prune_mode; }
+
+    /** Attempt to stay below this number of bytes of block files. */
+    [[nodiscard]] uint64_t GetPruneTarget() const { return m_opts.prune_target; }
+    static constexpr auto PRUNE_TARGET_MANUAL{std::numeric_limits<uint64_t>::max()};
+
+    [[nodiscard]] bool LoadingBlocks() const { return fImporting || fReindex; }
 
     /** Calculate the amount of disk space the block & undo files currently use */
     uint64_t CalculateCurrentUsage();

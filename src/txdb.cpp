@@ -69,21 +69,22 @@ struct CoinEntry {
 
 } // namespace
 
-CCoinsViewDB::CCoinsViewDB(fs::path ldb_path, size_t nCacheSize, bool fMemory, bool fWipe) :
-    m_db(std::make_unique<CDBWrapper>(ldb_path, nCacheSize, fMemory, fWipe, true)),
-    m_ldb_path(ldb_path),
-    m_is_memory(fMemory) { }
+CCoinsViewDB::CCoinsViewDB(DBParams db_params, CoinsViewOptions options) :
+    m_db_params{std::move(db_params)},
+    m_options{std::move(options)},
+    m_db{std::make_unique<CDBWrapper>(m_db_params)} { }
 
 void CCoinsViewDB::ResizeCache(size_t new_cache_size)
 {
     // We can't do this operation with an in-memory DB since we'll lose all the coins upon
     // reset.
-    if (!m_is_memory) {
+    if (!m_db_params.memory_only) {
         // Have to do a reset first to get the original `m_db` state to release its
         // filesystem lock.
         m_db.reset();
-        m_db = std::make_unique<CDBWrapper>(
-            m_ldb_path, new_cache_size, m_is_memory, /*fWipe=*/false, /*obfuscate=*/true);
+        m_db_params.cache_bytes = new_cache_size;
+        m_db_params.wipe_data = false;
+        m_db = std::make_unique<CDBWrapper>(m_db_params);
     }
 }
 
@@ -114,8 +115,6 @@ bool CCoinsViewDB::BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlock, boo
     CDBBatch batch(*m_db);
     size_t count = 0;
     size_t changed = 0;
-    size_t batch_size = (size_t)gArgs.GetIntArg("-dbbatchsize", nDefaultDbBatchSize);
-    int crash_simulate = gArgs.GetIntArg("-dbcrashratio", 0);
     assert(!hashBlock.IsNull());
 
     uint256 old_tip = GetBestBlock();
@@ -149,13 +148,13 @@ bool CCoinsViewDB::BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlock, boo
         }
         count++;
         it = erase ? mapCoins.erase(it) : std::next(it);
-        if (batch.SizeEstimate() > batch_size) {
+        if (batch.SizeEstimate() > m_options.batch_write_bytes) {
             LogPrint(BCLog::COINDB, "Writing partial batch of %.2f MiB\n", batch.SizeEstimate() * (1.0 / 1048576.0));
             m_db->WriteBatch(batch);
             batch.Clear();
-            if (crash_simulate) {
+            if (m_options.simulate_crash_ratio) {
                 static FastRandomContext rng;
-                if (rng.randrange(crash_simulate) == 0) {
+                if (rng.randrange(m_options.simulate_crash_ratio) == 0) {
                     LogPrintf("Simulating a crash. Goodbye.\n");
                     _Exit(0);
                 }
@@ -176,9 +175,6 @@ bool CCoinsViewDB::BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlock, boo
 size_t CCoinsViewDB::EstimateSize() const
 {
     return m_db->EstimateSize(DB_COIN, uint8_t(DB_COIN + 1));
-}
-
-CBlockTreeDB::CBlockTreeDB(size_t nCacheSize, bool fMemory, bool fWipe) : CDBWrapper(gArgs.GetDataDirNet() / "blocks" / "index", nCacheSize, fMemory, fWipe) {
 }
 
 bool CBlockTreeDB::ReadBlockFileInfo(int nFile, CBlockFileInfo &info) {
@@ -528,7 +524,7 @@ bool CBlockTreeDB::MigrateOldIndexData()
     uint256 best_block_hash;
     {
         fs::path chainstate_path = gArgs.GetDataDirNet() / "chainstate";
-        CDBWrapper coins_db(chainstate_path, 0, false, false);
+        CDBWrapper coins_db{DBParams{.path = chainstate_path, .cache_bytes = 0}};
         if (!coins_db.Read(DB_BEST_BLOCK, best_block_hash)) {
             // If we can't read the best block, the indexes will resync from scratch
             LogPrintf("Warning: Could not read best block from chainstate, migrated indexes will resync\n");
@@ -556,7 +552,7 @@ bool CBlockTreeDB::MigrateOldIndexData()
     // Migrate timestamp index (only if enabled)
     if (fTimestampIndex) {
         const fs::path db_path = indexes_path / "timestampindex";
-        CDBWrapper timestamp_db(db_path, 0, false, false);
+        CDBWrapper timestamp_db{DBParams{.path = db_path, .cache_bytes = 0}};
 
         // Pass nullptr to discard rather than copy if legacy data is stale.
         CDBWrapper* target = timestampindex_was_current ? &timestamp_db : nullptr;
@@ -577,7 +573,7 @@ bool CBlockTreeDB::MigrateOldIndexData()
     // Migrate spent index (only if enabled)
     if (fSpentIndex) {
         const fs::path db_path = indexes_path / "spentindex";
-        CDBWrapper spent_db(db_path, 0, false, false);
+        CDBWrapper spent_db{DBParams{.path = db_path, .cache_bytes = 0}};
 
         CDBWrapper* target = spentindex_was_current ? &spent_db : nullptr;
         int64_t count = MigrateIndex<DB_SPENTINDEX, CSpentIndexKey, CSpentIndexValue>(
@@ -595,7 +591,7 @@ bool CBlockTreeDB::MigrateOldIndexData()
     // Migrate address index (includes both address and unspent indexes) (only if enabled)
     if (fAddressIndex) {
         const fs::path db_path = indexes_path / "addressindex";
-        CDBWrapper address_db(db_path, 0, false, false);
+        CDBWrapper address_db{DBParams{.path = db_path, .cache_bytes = 0}};
 
         CDBWrapper* target = addressindex_was_current ? &address_db : nullptr;
 

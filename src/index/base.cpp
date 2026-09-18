@@ -8,6 +8,7 @@
 #include <kernel/chain.h>
 #include <node/blockstorage.h>
 #include <node/context.h>
+#include <node/database_args.h>
 #include <node/interface_ui.h>
 #include <shutdown.h>
 #include <tinyformat.h>
@@ -22,7 +23,6 @@
 
 using node::PruneLockInfo;
 using node::ReadBlockFromDisk;
-using node::fPruneMode;
 
 constexpr uint8_t DB_BEST_BLOCK{'B'};
 
@@ -44,7 +44,13 @@ CBlockLocator GetLocator(interfaces::Chain& chain, const uint256& block_hash)
 }
 
 BaseIndex::DB::DB(const fs::path& path, size_t n_cache_size, bool f_memory, bool f_wipe, bool f_obfuscate) :
-    CDBWrapper(path, n_cache_size, f_memory, f_wipe, f_obfuscate)
+    CDBWrapper{DBParams{
+        .path = path,
+        .cache_bytes = n_cache_size,
+        .memory_only = f_memory,
+        .wipe_data = f_wipe,
+        .obfuscate = f_obfuscate,
+        .options = [] { DBOptions options; node::ReadDatabaseArgs(gArgs, options); return options; }()}}
 {}
 
 bool BaseIndex::DB::ReadBestBlock(CBlockLocator& locator) const
@@ -435,8 +441,9 @@ IndexSummary BaseIndex::GetSummary() const
     return summary;
 }
 
-void BaseIndex::SetBestBlockIndex(const CBlockIndex* block) {
-    assert(!fPruneMode || AllowPrune());
+void BaseIndex::SetBestBlockIndex(const CBlockIndex* block)
+{
+    assert(!m_chainstate->m_blockman.IsPruneMode() || AllowPrune());
 
     if (AllowPrune() && block) {
         PruneLockInfo prune_lock;
