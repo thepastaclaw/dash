@@ -92,6 +92,7 @@ int main(int argc, char* argv[])
     // SETUP: Chainstate
     const ChainstateManager::Options chainman_opts{
         .chainparams = chainparams,
+        .datadir = gArgs.GetDataDirNet(),
     };
     ChainstateManager chainman{chainman_opts};
 

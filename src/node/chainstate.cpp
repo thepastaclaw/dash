@@ -74,7 +74,13 @@ static bool RecoverSnapshotCleanup(CEvoDB& evodb, const fs::path& data_dir, bili
     if (fs::exists(normal) && !fs::exists(snapshot) && has_metadata) {
         uint256 coins_tip;
         try {
-            CCoinsViewDB coins_db{normal, /*nCacheSize=*/1 << 20, /*fMemory=*/false, /*fWipe=*/false};
+            CCoinsViewDB coins_db{DBParams{
+                                      .path = normal,
+                                      .cache_bytes = 1 << 20,
+                                      .memory_only = false,
+                                      .wipe_data = false,
+                                      .obfuscate = true},
+                                  {}};
             coins_tip = coins_db.GetBestBlock();
         } catch (const std::exception& e) {
             error = strprintf(_("Failed to inspect interrupted snapshot cleanup: %s"), e.what());
@@ -152,7 +158,12 @@ static ChainstateLoadResult CompleteChainstateInitialization(ChainstateManager& 
     // new CBlockTreeDB tries to delete the existing file, which
     // fails if it's still open from the previous loop. Close it first:
     pblocktree.reset();
-    pblocktree.reset(new CBlockTreeDB(cache_sizes.block_tree_db, options.block_tree_db_in_memory, options.reindex));
+    pblocktree = std::make_unique<CBlockTreeDB>(DBParams{
+        .path = chainman.m_options.datadir / "blocks" / "index",
+        .cache_bytes = static_cast<size_t>(cache_sizes.block_tree_db),
+        .memory_only = options.block_tree_db_in_memory,
+        .wipe_data = options.reindex,
+        .options = chainman.m_options.block_tree_db});
 
     // Initialize llmq_ctx
     llmq_ctx.reset();
