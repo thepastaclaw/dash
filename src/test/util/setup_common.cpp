@@ -317,6 +317,7 @@ ChainTestingSetup::~ChainTestingSetup()
 
 node::ChainstateLoadOptions ChainTestingSetup::ChainstateLoadOptionsForTest()
 {
+    auto& chainman{*Assert(m_node.chainman)};
     node::ChainstateLoadOptions options;
     options.mempool = Assert(m_node.mempool.get());
     options.isman = Assert(m_node.isman.get());
@@ -328,7 +329,7 @@ node::ChainstateLoadOptions ChainTestingSetup::ChainstateLoadOptionsForTest()
     options.dash_dbs_in_memory = m_dash_dbs_in_memory;
     options.reindex = node::fReindex;
     options.reindex_chainstate = m_args.GetBoolArg("-reindex-chainstate", false);
-    options.prune = node::fPruneMode;
+    options.prune = chainman.m_blockman.IsPruneMode();
     options.check_blocks = m_args.GetIntArg("-checkblocks", DEFAULT_CHECKBLOCKS);
     options.check_level = m_args.GetIntArg("-checklevel", DEFAULT_CHECKLEVEL);
     options.check_interrupt = [] { return false; };

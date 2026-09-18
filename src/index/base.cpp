@@ -23,7 +23,6 @@
 
 using node::PruneLockInfo;
 using node::ReadBlockFromDisk;
-using node::fPruneMode;
 
 constexpr uint8_t DB_BEST_BLOCK{'B'};
 
@@ -442,8 +441,9 @@ IndexSummary BaseIndex::GetSummary() const
     return summary;
 }
 
-void BaseIndex::SetBestBlockIndex(const CBlockIndex* block) {
-    assert(!fPruneMode || AllowPrune());
+void BaseIndex::SetBestBlockIndex(const CBlockIndex* block)
+{
+    assert(!m_chainstate->m_blockman.IsPruneMode() || AllowPrune());
 
     if (AllowPrune() && block) {
         PruneLockInfo prune_lock;

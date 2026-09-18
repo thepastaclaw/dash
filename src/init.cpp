@@ -2014,7 +2014,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
         options.data_dir = args.GetDataDirNet();
         options.reindex = node::fReindex;
         options.reindex_chainstate = fReindexChainState;
-        options.prune = node::fPruneMode;
+        options.prune = chainman.m_blockman.IsPruneMode();
         options.bls_threads = [&args]() -> int8_t {
             int64_t threads = args.GetIntArg("-parbls", llmq::DEFAULT_BLSCHECK_THREADS);
             if (threads <= 0) {
@@ -2287,7 +2287,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
 
     // if pruning, perform the initial blockstore prune
     // after any wallet rescanning has taken place.
-    if (fPruneMode) {
+    if (chainman.m_blockman.IsPruneMode()) {
         if (!fReindex) {
             LOCK(cs_main);
             for (Chainstate* chainstate : chainman.GetAll()) {
@@ -2347,8 +2347,10 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
 
     // On first startup, warn on low block storage space
     if (!fReindex && !fReindexChainState && chain_active_height <= 1) {
-        uint64_t additional_bytes_needed = fPruneMode ? nPruneTarget
-            : chainparams.AssumedBlockchainSize() * 1024 * 1024 * 1024;
+        uint64_t additional_bytes_needed{
+            chainman.m_blockman.IsPruneMode() ?
+                chainman.m_blockman.GetPruneTarget() :
+                chainparams.AssumedBlockchainSize() * 1024 * 1024 * 1024};
 
         if (!CheckDiskSpace(args.GetBlocksDirPath(), additional_bytes_needed)) {
             InitWarning(strprintf(_(
