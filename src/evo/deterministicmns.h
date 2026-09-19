@@ -120,13 +120,13 @@ void UnserializeImmerMap(Stream& is, immer::map<K, T, Hash, Equal>& m)
 // For some reason the compiler is not able to choose the correct Serialize/Deserialize methods without a specialized
 // version of SerReadWrite. It otherwise always chooses the version that calls a.Serialize()
 template<typename Stream, typename K, typename T, typename Hash, typename Equal>
-inline void SerReadWrite(Stream& s, const immer::map<K, T, Hash, Equal>& m, CSerActionSerialize ser_action)
+inline void SerReadWrite(Stream& s, const immer::map<K, T, Hash, Equal>& m, ActionSerialize ser_action)
 {
     ::SerializeImmerMap(s, m);
 }
 
 template<typename Stream, typename K, typename T, typename Hash, typename Equal>
-inline void SerReadWrite(Stream& s, immer::map<K, T, Hash, Equal>& obj, CSerActionUnserialize ser_action)
+inline void SerReadWrite(Stream& s, immer::map<K, T, Hash, Equal>& obj, ActionUnserialize ser_action)
 {
     ::UnserializeImmerMap(s, obj);
 }
@@ -236,7 +236,7 @@ public:
     template<typename Stream>
     void Serialize(Stream& s) const
     {
-        const_cast<CDeterministicMNList*>(this)->SerializationOpBase(s, CSerActionSerialize());
+        const_cast<CDeterministicMNList*>(this)->SerializationOpBase(s, ActionSerialize());
 
         // Serialize the map as a vector
         WriteCompactSize(s, mnMap.size());
@@ -250,7 +250,7 @@ public:
     {
         Clear();
 
-        SerializationOpBase(s, CSerActionUnserialize());
+        SerializationOpBase(s, ActionUnserialize());
 
         for (size_t to_read = ReadCompactSize(s); to_read > 0; --to_read) {
             AddMN(std::make_shared<CDeterministicMN>(deserialize, s), /*fBumpTotalCount=*/false);
@@ -536,17 +536,16 @@ private:
         DMNL_NO_TEMPLATE(NetInfoInterface);
         DMNL_NO_TEMPLATE(std::shared_ptr<NetInfoInterface>);
 #undef DMNL_NO_TEMPLATE
-        int ser_version{PROTOCOL_VERSION};
         if constexpr (std::is_same_v<std::decay_t<T>, CService>) {
             // Special handling is required if we're using addresses that can only be (de)serialized using
             // ADDRv2. Without this step, the address gets truncated, the hashmap gets contaminated with
             // an invalid entry and subsequent attempts at registering ADDRv2 entries get blocked. We cannot
             // apply this treatment ADDRv1 compatible addresses for backwards compatibility with the existing map.
-            if (!v.IsAddrV1Compatible()) {
-                ser_version |= ADDRV2_FORMAT;
-            }
+            const auto ser_params{v.IsAddrV1Compatible() ? CNetAddr::V1 : CNetAddr::V2};
+            return ::SerializeHash(WithParams(ser_params, v), /*nType=*/SER_GETHASH, /*nVersion=*/PROTOCOL_VERSION);
+        } else {
+            return ::SerializeHash(v, /*nType=*/SER_GETHASH, /*nVersion=*/PROTOCOL_VERSION);
         }
-        return ::SerializeHash(v, /*nType=*/SER_GETHASH, /*nVersion=*/ser_version);
     }
     template <typename T>
     [[nodiscard]] bool AddUniqueProperty(const CDeterministicMN& dmn, const T& v)
