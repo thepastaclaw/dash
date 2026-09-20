@@ -49,6 +49,7 @@ static constexpr size_t BLOCK_SERIALIZATION_HEADER_SIZE = CMessageHeader::MESSAG
 
 extern std::atomic_bool fImporting;
 extern std::atomic_bool fReindex;
+extern std::atomic_bool g_indexes_ready_to_sync;
 /** Pruning-related variables and constants */
 /** True if we're running in -prune mode. */
 extern bool fPruneMode;

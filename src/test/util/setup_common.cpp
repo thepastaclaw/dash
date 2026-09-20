@@ -241,6 +241,7 @@ BasicTestingSetup::BasicTestingSetup(const std::string& chainName, const std::ve
         noui_connect();
         noui_connected = true;
     }
+    node::g_indexes_ready_to_sync = true;
 
     bls::bls_legacy_scheme.store(true);
 }
