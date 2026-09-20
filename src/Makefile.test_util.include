@@ -43,6 +43,7 @@ libtest_util_a_SOURCES = \
   test/util/masternode.cpp \
   test/util/mining.cpp \
   test/util/net.cpp \
+  test/util/random.cpp \
   test/util/script.cpp \
   test/util/setup_common.cpp \
   test/util/str.cpp \

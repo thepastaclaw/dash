@@ -13,6 +13,7 @@
 #include <script/signingprovider.h>
 #include <script/standard.h>
 #include <test/util/net.h>
+#include <test/util/random.h>
 #include <test/util/setup_common.h>
 #include <timedata.h>
 #include <util/string.h>

@@ -17,6 +17,7 @@
 #include <spork.h>
 #include <streams.h>
 #include <test/util/llmq_tests.h>
+#include <test/util/random.h>
 #include <test/util/setup_common.h>
 #include <util/std23.h>
 #include <util/strencodings.h>

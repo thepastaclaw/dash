@@ -10,6 +10,7 @@
 #include <script/descriptor.h>
 #include <script/signingprovider.h>
 #include <script/standard.h>
+#include <test/util/random.h>
 #include <test/util/setup_common.h>
 #include <util/strencodings.h>
 #include <wallet/bip39.h>
