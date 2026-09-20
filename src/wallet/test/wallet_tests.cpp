@@ -51,6 +51,16 @@ extern RPCHelpMan addmultisigaddress();
 static_assert(DEFAULT_TRANSACTION_MINFEE >= DEFAULT_MIN_RELAY_TX_FEE, "wallet minimum fee is smaller than default relay fee");
 
 namespace {
+class FailCursor : public DatabaseCursor
+{
+private:
+    bool m_pass{true};
+
+public:
+    explicit FailCursor(bool pass) : m_pass(pass) {}
+    Status Next(CDataStream&, CDataStream&) override { return m_pass ? Status::DONE : Status::FAIL; }
+};
+
 /** RAII class that provides access to a FailDatabase. Which fails if needed. */
 class FailBatch : public DatabaseBatch
 {
@@ -67,13 +77,7 @@ public:
     void Flush() override {}
     void Close() override {}
 
-    bool StartCursor() override { return true; }
-    bool ReadAtCursor(CDataStream&, CDataStream&, bool& complete) override
-    {
-        complete = true;
-        return m_pass;
-    }
-    void CloseCursor() override {}
+    std::unique_ptr<DatabaseCursor> GetNewCursor() override { return std::make_unique<FailCursor>(m_pass); }
     bool TxnBegin() override { return m_pass; }
     bool TxnCommit() override { return m_pass; }
     bool TxnAbort() override { return m_pass; }
