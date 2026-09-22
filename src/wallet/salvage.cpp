@@ -11,6 +11,8 @@
 #include <wallet/wallet.h>
 #include <wallet/walletdb.h>
 
+#include <db_cxx.h>
+
 namespace wallet {
 /* End of headers, beginning of key/value data */
 static const char *HEADER_END = "HEADER=END";
@@ -134,7 +136,7 @@ bool RecoverDatabaseFile(const ArgsManager& args, const fs::path& file_path, bil
         return false;
     }
 
-    DbTxn* ptxn = env->TxnBegin();
+    DbTxn* ptxn = env->TxnBegin(DB_TXN_WRITE_NOSYNC);
     CWallet dummyWallet(/*chain=*/nullptr, /*coinjoin_loader=*/nullptr, "", gArgs, CreateDummyWalletDatabase());
     dummyWallet.SetupLegacyScriptPubKeyMan();
     for (KeyValPair& row : salvagedData)
