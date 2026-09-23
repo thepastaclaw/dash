@@ -150,7 +150,6 @@ void SQLiteBatch::SetupSQLStatements()
         {&m_insert_stmt, "INSERT INTO main VALUES(?, ?)"},
         {&m_overwrite_stmt, "INSERT or REPLACE into main values(?, ?)"},
         {&m_delete_stmt, "DELETE FROM main WHERE key = ?"},
-        {&m_cursor_stmt, "SELECT key, value FROM main"},
         {&m_delete_prefix_stmt, "DELETE FROM main WHERE instr(key, ?) = 1"},
     };
 
@@ -412,7 +411,6 @@ void SQLiteBatch::Close()
         {&m_insert_stmt, "insert"},
         {&m_overwrite_stmt, "overwrite"},
         {&m_delete_stmt, "delete"},
-        {&m_cursor_stmt, "cursor"},
         {&m_delete_prefix_stmt, "delete prefix"},
     };
 
@@ -520,28 +518,15 @@ bool SQLiteBatch::HasKey(CDataStream&& key)
     return res == SQLITE_ROW;
 }
 
-bool SQLiteBatch::StartCursor()
+DatabaseCursor::Status SQLiteCursor::Next(CDataStream& key, CDataStream& value)
 {
-    assert(!m_cursor_init);
-    if (!m_database.m_db) return false;
-    m_cursor_init = true;
-    return true;
-}
-
-bool SQLiteBatch::ReadAtCursor(CDataStream& key, CDataStream& value, bool& complete)
-{
-    complete = false;
-
-    if (!m_cursor_init) return false;
-
     int res = sqlite3_step(m_cursor_stmt);
     if (res == SQLITE_DONE) {
-        complete = true;
-        return true;
+        return Status::DONE;
     }
     if (res != SQLITE_ROW) {
-        LogPrintf("SQLiteBatch::ReadAtCursor: Unable to execute cursor step: %s\n", sqlite3_errstr(res));
-        return false;
+        LogPrintf("%s: Unable to execute cursor step: %s\n", __func__, sqlite3_errstr(res));
+        return Status::FAIL;
     }
 
     key.clear();
@@ -550,13 +535,32 @@ bool SQLiteBatch::ReadAtCursor(CDataStream& key, CDataStream& value, bool& compl
     // Leftmost column in result is index 0
     key.write(SpanFromBlob(m_cursor_stmt, 0));
     value.write(SpanFromBlob(m_cursor_stmt, 1));
-    return true;
+    return Status::MORE;
 }
 
-void SQLiteBatch::CloseCursor()
+SQLiteCursor::~SQLiteCursor()
 {
     sqlite3_reset(m_cursor_stmt);
-    m_cursor_init = false;
+    int res = sqlite3_finalize(m_cursor_stmt);
+    if (res != SQLITE_OK) {
+        LogPrintf("%s: cursor closed but could not finalize cursor statement: %s\n",
+                  __func__, sqlite3_errstr(res));
+    }
+}
+
+std::unique_ptr<DatabaseCursor> SQLiteBatch::GetNewCursor()
+{
+    if (!m_database.m_db) return nullptr;
+    auto cursor = std::make_unique<SQLiteCursor>();
+
+    const char* stmt_text = "SELECT key, value FROM main";
+    int res = sqlite3_prepare_v2(m_database.m_db, stmt_text, -1, &cursor->m_cursor_stmt, nullptr);
+    if (res != SQLITE_OK) {
+        throw std::runtime_error(strprintf(
+            "%s: Failed to setup cursor SQL statement: %s\n", __func__, sqlite3_errstr(res)));
+    }
+
+    return cursor;
 }
 
 bool SQLiteBatch::TxnBegin()
