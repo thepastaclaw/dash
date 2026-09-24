@@ -76,6 +76,4 @@ static const int COINJOIN_REBALANCE_VERSION = 70241;
 //! so that re-signed instances of one withdrawal (sharing its txid) propagate
 static const int ASSET_UNLOCK_INV_VERSION = 70242;
 
-// Make sure that none of the values above collide with `ADDRV2_FORMAT`.
-
 #endif // BITCOIN_VERSION_H
