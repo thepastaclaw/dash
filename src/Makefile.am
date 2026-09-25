@@ -288,6 +288,7 @@ BITCOIN_CORE_H = \
   interfaces/wallet.h \
   kernel/blockmanager_opts.h \
   kernel/chain.h \
+  kernel/chainparams.h \
   kernel/chainstatemanager_opts.h \
   kernel/checks.h \
   kernel/coinstats.h \
@@ -993,6 +994,7 @@ libbitcoin_common_a_SOURCES = \
   external_signer.cpp \
   governance/common.cpp \
   init/common.cpp \
+  kernel/chainparams.cpp \
   key.cpp \
   key_io.cpp \
   llmq/core_write.cpp \
@@ -1316,6 +1318,7 @@ libdashkernel_la_SOURCES = \
   instantsend/lock.cpp \
   kernel/chain.cpp \
   kernel/checks.cpp \
+  kernel/chainparams.cpp \
   kernel/coinstats.cpp \
   kernel/context.cpp \
   kernel/cs_main.cpp \
