@@ -111,9 +111,11 @@ class GetBlockFromPeerTest(BitcoinTestFramework):
         self.stop_node(1, expected_stderr=EXPECTED_STDERR_NO_GOV_PRUNE)
 
         self.log.info("Connect pruned node")
-        # We need to generate more blocks to be able to prune
         self.connect_nodes(0, 2)
         pruned_node = self.nodes[2]
+        self.sync_blocks([self.nodes[0], pruned_node])
+
+        # We need to generate more blocks to be able to prune
         # Dash blocks are smaller than Bitcoin's, so many more of them fit into a
         # (-fastprune) block file. More blocks are needed before the first block
         # file wraps and can be pruned, and the resulting prune heights are not the

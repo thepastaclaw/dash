@@ -60,7 +60,7 @@ public:
     template <typename Stream>
     void Serialize(Stream& s) const
     {
-        const_cast<CQuorumSnapshot*>(this)->SerializationOpBase(s, CSerActionSerialize());
+        const_cast<CQuorumSnapshot*>(this)->SerializationOpBase(s, ActionSerialize());
 
         WriteCompactSize(s, activeQuorumMembers.size());
         WriteFixedBitSet(s, activeQuorumMembers, activeQuorumMembers.size());
@@ -73,7 +73,7 @@ public:
     template <typename Stream>
     void Unserialize(Stream& s)
     {
-        SerializationOpBase(s, CSerActionUnserialize());
+        SerializationOpBase(s, ActionUnserialize());
 
         size_t cnt = ReadCompactSize(s);
         ReadFixedBitSet(s, activeQuorumMembers, cnt);
@@ -158,7 +158,7 @@ public:
     template <typename Stream>
     void Serialize(Stream& s) const
     {
-        const_cast<CQuorumRotationInfo*>(this)->SerializationOpBase(s, CSerActionSerialize());
+        const_cast<CQuorumRotationInfo*>(this)->SerializationOpBase(s, ActionSerialize());
 
         if (extraShare) {
             // Needed to maintain compatibility with existing on-disk format
@@ -185,7 +185,7 @@ public:
     template <typename Stream>
     void Unserialize(Stream& s)
     {
-        SerializationOpBase(s, CSerActionUnserialize());
+        SerializationOpBase(s, ActionUnserialize());
 
         if (extraShare) {
             CycleData val{};
