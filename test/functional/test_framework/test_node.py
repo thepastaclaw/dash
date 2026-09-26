@@ -389,6 +389,15 @@ class TestNode():
         assert not invalid_call
         return self.__getattr__('generatetodescriptor')(*args, **kwargs)
 
+    def setmocktime(self, timestamp):
+        """Wrapper for setmocktime RPC, sets self.mocktime.
+
+        Note that 0 (and not None, as upstream uses) is this framework's "no mocktime" sentinel:
+        self.mocktime is set from the constructor and is compared against 0 when deciding whether
+        to pass -mocktime on (re)start."""
+        self.mocktime = timestamp
+        return self.__getattr__('setmocktime')(timestamp)
+
     def get_wallet_rpc(self, wallet_name):
         if self.use_cli:
             return RPCOverloadWrapper(self.cli("-rpcwallet={}".format(wallet_name)), True, self.descriptors)
