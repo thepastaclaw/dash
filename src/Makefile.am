@@ -363,6 +363,7 @@ BITCOIN_CORE_H = \
   node/mempool_persist_args.h \
   node/miner.h \
   node/minisketchwrapper.h \
+  node/peerman_args.h \
   node/psbt.h \
   node/sync_manager.h \
   node/transaction.h \
@@ -643,6 +644,7 @@ libbitcoin_node_a_SOURCES = \
   node/mempool_persist_args.cpp \
   node/miner.cpp \
   node/minisketchwrapper.cpp \
+  node/peerman_args.cpp \
   node/psbt.cpp \
   node/sync_manager.cpp \
   node/transaction.cpp \

@@ -37,6 +37,8 @@ namespace llmq {
 class CInstantSendManager;
 } // namespace llmq
 
+/** Whether transaction reconciliation protocol should be enabled by default. */
+static constexpr bool DEFAULT_TXRECONCILIATION_ENABLE{false};
 /** Default for -maxorphantxsize, maximum size in megabytes the orphan map can grow before entries are removed */
 static const unsigned int DEFAULT_MAX_ORPHAN_TRANSACTIONS_SIZE = 10; // this allows around 100 TXs of max size (and many more of normal size)
 /** Default number of orphan+recently-replaced txn to keep around for block reconstruction */
@@ -83,6 +85,15 @@ struct CNodeStateStats {
 class PeerManagerInternal
 {
 public:
+    struct Options {
+        /** Whether this node is running in -blocksonly mode */
+        bool ignore_incoming_txs{DEFAULT_BLOCKSONLY};
+        bool reconcile_txs{DEFAULT_TXRECONCILIATION_ENABLE};
+        uint32_t max_orphan_txs_size{DEFAULT_MAX_ORPHAN_TRANSACTIONS_SIZE * 1000000};
+        size_t max_extra_txs{DEFAULT_BLOCK_RECONSTRUCTION_EXTRA_TXN};
+        bool capture_messages{false};
+    };
+
     virtual void PeerMisbehaving(const NodeId pnode, const int howmuch, const std::string& message = "") = 0;
     virtual bool PeerIsBanned(const NodeId node_id) = 0;
     /** Complete this peer's pending announcement of the inv, so it is not requested from them
@@ -162,7 +173,7 @@ public:
                                              CDeterministicMNManager& dmnman,
                                              CJWalletManager* cj_walletman,
                                              llmq::CInstantSendManager& isman,
-                                             LLMQContext& llmq_ctx, bool ignore_incoming_txs);
+                                             LLMQContext& llmq_ctx, Options opts);
     virtual ~PeerManager() { }
 
     /**

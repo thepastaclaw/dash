@@ -34,6 +34,7 @@
 #include <node/context.h>
 #include <node/mempool_args.h>
 #include <node/miner.h>
+#include <node/peerman_args.h>
 #include <node/sync_manager.h>
 #include <node/validation_cache_args.h>
 #include <policy/fees.h>
@@ -119,11 +120,11 @@ std::ostream& operator<<(std::ostream& os, const uint256& num)
 std::unique_ptr<PeerManager> MakePeerManager(CConnman& connman,
                                              NodeContext& node,
                                              BanMan* banman,
-                                             bool ignore_incoming_txs)
+                                             PeerManager::Options opts)
 {
     return PeerManager::make(connman, *node.addrman, banman, *node.dstxman, *node.chainman, *node.mempool, *node.mn_metaman,
                              *node.mn_sync, *node.sporkman, *node.chainlocks, *node.clhandler, /*nodeman=*/nullptr, *node.dmnman, node.cj_walletman.get(),
-                             *node.isman, *node.llmq_ctx, ignore_incoming_txs);
+                             *node.isman, *node.llmq_ctx, opts);
 }
 
 struct NetworkSetup
@@ -405,8 +406,10 @@ TestingSetup::TestingSetup(
 #endif // ENABLE_WALLET
 
     m_node.banman = std::make_unique<BanMan>(m_args.GetDataDirBase() / "banlist", nullptr, DEFAULT_MISBEHAVING_BANTIME);
-    m_node.peerman = MakePeerManager(*m_node.connman, m_node, m_node.banman.get(),
-                                     /*ignore_incoming_txs=*/false);
+    PeerManager::Options peerman_opts;
+    ApplyArgsManOptions(*m_node.args, peerman_opts);
+    m_node.peerman = MakePeerManager(*m_node.connman, m_node, m_node.banman.get(), peerman_opts);
+
     {
         CConnman::Options options;
         options.m_msgproc = m_node.peerman.get();
