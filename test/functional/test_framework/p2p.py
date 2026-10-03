@@ -114,6 +114,10 @@ P2P_SUBVERSION = "/python-p2p-tester:0.0.3%s/"
 P2P_VERSION_RELAY = 1
 # Delay after receiving a tx inv before requesting transactions from non-preferred peers, in seconds
 NONPREF_PEER_TX_DELAY = 2
+# Delay for requesting objects if the peer has MAX_PEER_OBJECT_REQUEST_IN_FLIGHT or more requests
+OVERLOADED_PEER_OBJECT_DELAY = 2
+# How long to wait before downloading a transaction from an additional peer
+GETDATA_TX_INTERVAL = 60
 
 MESSAGEMAP = {
     b"addr": msg_addr,
