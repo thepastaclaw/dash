@@ -80,7 +80,12 @@ class CreateWalletTest(BitcoinTestFramework):
         w3.importprivkey(generate_wif_key())
         # Imported private keys are currently ignored by the keypool
         assert_equal(w3.getwalletinfo()['keypoolsize'], 0)
-        assert_raises_rpc_error(-4, "Error: This wallet has no available keys", w3.getnewaddress)
+        if self.options.descriptors:
+            assert_raises_rpc_error(-4, "Error: This wallet has no available keys", w3.getnewaddress)
+        else:
+            # Dash: importprivkey unsets the blank flag (bitcoin#25634), and a non-blank
+            # legacy wallet without an HD chain can generate non-HD keys in Dash
+            assert_equal(w3.getwalletinfo()['blank'], False)
         # Set the seed
         if self.options.descriptors:
             w3.importdescriptors([{
