@@ -18,21 +18,24 @@ from test_framework.blocktools import (
     TIME_GENESIS_BLOCK,
 )
 from test_framework.messages import (
+    BLOCK_HEADER_SIZE,
     CBlock,
     CBlockHeader,
-    BLOCK_HEADER_SIZE,
+    COIN,
 )
 from test_framework.p2p import P2PDataStore
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
     assert_equal,
     assert_raises_rpc_error,
+    get_fee,
 )
 from test_framework.wallet import MiniWallet
 
 
 VERSIONBITS_TOP_BITS = 0x20000000
 VERSIONBITS_DEPLOYMENT_TESTDUMMY_BIT = 28
+DEFAULT_BLOCK_MIN_TX_FEE = 1000  # default `-blockmintxfee` setting [sat/kvB]
 
 def assert_template(node, block, expect, rehash=True):
     if rehash:
@@ -70,6 +73,45 @@ class MiningTest(BitcoinTestFramework):
         self.restart_node(0)
         self.connect_nodes(0, 1)
         self.connect_nodes(1, 0)
+
+    def test_blockmintxfee_parameter(self):
+        self.log.info("Test -blockmintxfee setting")
+        self.restart_node(0, extra_args=['-minrelaytxfee=0', '-persistmempool=0'])
+        node = self.nodes[0]
+
+        # test default (no parameter), zero and a bunch of arbitrary blockmintxfee rates [sat/kvB]
+        for blockmintxfee_sat_kvb in (DEFAULT_BLOCK_MIN_TX_FEE, 0, 50, 100, 500, 2500, 5000, 21000, 333333, 2500000):
+            blockmintxfee_btc_kvb = blockmintxfee_sat_kvb / Decimal(COIN)
+            if blockmintxfee_sat_kvb == DEFAULT_BLOCK_MIN_TX_FEE:
+                self.log.info(f"-> Default -blockmintxfee setting ({blockmintxfee_sat_kvb} sat/kvB)...")
+            else:
+                blockmintxfee_parameter = f"-blockmintxfee={blockmintxfee_btc_kvb:.8f}"
+                self.log.info(f"-> Test {blockmintxfee_parameter} ({blockmintxfee_sat_kvb} sat/kvB)...")
+                self.restart_node(0, extra_args=[blockmintxfee_parameter, '-minrelaytxfee=0', '-persistmempool=0'])
+                self.wallet.rescan_utxos()  # to avoid spending outputs of txs that are not in mempool anymore after restart
+
+            # submit one tx with exactly the blockmintxfee rate, and one slightly below
+            tx_with_min_feerate = self.wallet.send_self_transfer(from_node=node, fee_rate=blockmintxfee_btc_kvb)
+            assert_equal(tx_with_min_feerate["fee"], get_fee(tx_with_min_feerate["tx"].get_vsize(), blockmintxfee_btc_kvb))
+            if blockmintxfee_btc_kvb > 0:
+                lowerfee_btc_kvb = blockmintxfee_btc_kvb - Decimal(12)/COIN  # 0.012 sat/byte lower (>= 1 sat less fee for the 85-byte MiniWallet tx)
+                tx_below_min_feerate = self.wallet.send_self_transfer(from_node=node, fee_rate=lowerfee_btc_kvb)
+                assert_equal(tx_below_min_feerate["fee"], get_fee(tx_below_min_feerate["tx"].get_vsize(), lowerfee_btc_kvb))
+            else:  # go below zero fee by using modified fees
+                tx_below_min_feerate = self.wallet.send_self_transfer(from_node=node, fee_rate=blockmintxfee_btc_kvb)
+                node.prioritisetransaction(tx_below_min_feerate["txid"], -1)
+
+            # check that tx below specified fee-rate is neither in template nor in the actual block
+            block_template = node.getblocktemplate(NORMAL_GBT_REQUEST_PARAMS)
+            block_template_txids = [tx['hash'] for tx in block_template['transactions']]
+            self.generate(self.wallet, 1, sync_fun=self.no_op)
+            block = node.getblock(node.getbestblockhash(), verbosity=2)
+            block_txids = [tx['txid'] for tx in block['tx']]
+
+            assert tx_with_min_feerate['txid'] in block_template_txids
+            assert tx_with_min_feerate['txid'] in block_txids
+            assert tx_below_min_feerate['txid'] not in block_template_txids
+            assert tx_below_min_feerate['txid'] not in block_txids
 
     def run_test(self):
         node = self.nodes[0]
@@ -255,6 +297,8 @@ class MiningTest(BitcoinTestFramework):
         node.submitheader(hexdata=CBlockHeader(block).serialize().hex())
         node.submitheader(hexdata=CBlockHeader(bad_block_root).serialize().hex())
         assert_equal(node.submitblock(hexdata=block.serialize().hex()), 'duplicate')  # valid
+
+        self.test_blockmintxfee_parameter()
 
 
 if __name__ == '__main__':
