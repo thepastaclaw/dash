@@ -571,7 +571,7 @@ public:
                     CDeterministicMNManager& dmnman,
                     CJWalletManager* cj_walletman,
                     llmq::CInstantSendManager& isman,
-                    LLMQContext& llmq_ctx, bool ignore_incoming_txs);
+                    LLMQContext& llmq_ctx, Options opts);
 
     ~PeerManagerImpl()
     {
@@ -607,7 +607,7 @@ public:
     std::optional<std::string> FetchBlock(NodeId peer_id, const CBlockIndex& block_index) override
         EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex);
     bool GetNodeStateStats(NodeId nodeid, CNodeStateStats& stats) const override EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex);
-    bool IgnoresIncomingTxs() override { return m_ignore_incoming_txs; }
+    bool IgnoresIncomingTxs() override { return m_opts.ignore_incoming_txs; }
     void SendPings() override EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex);;
     void PushInventory(NodeId nodeid, const CInv& inv) override EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex);
     void RelayInv(const CInv& inv) override EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex);
@@ -847,8 +847,7 @@ private:
     /** Next time to check for stale tip */
     std::chrono::seconds m_stale_tip_check_time GUARDED_BY(cs_main){0s};
 
-    /** Whether this node is running in -blocksonly mode */
-    const bool m_ignore_incoming_txs;
+    const Options m_opts;
 
     bool RejectIncomingTxs(const CNode& peer) const;
 
@@ -1364,7 +1363,7 @@ void PeerManagerImpl::MaybeSetPeerAsAnnouncingHeaderAndIDs(NodeId nodeid)
     // When in -blocksonly mode, never request high-bandwidth mode from peers. Our
     // mempool will not contain the transactions necessary to reconstruct the
     // compact block.
-    if (m_ignore_incoming_txs) return;
+    if (m_opts.ignore_incoming_txs) return;
 
     CNodeState* nodestate = State(nodeid);
     if (!nodestate || !nodestate->m_provides_cmpctblocks) {
@@ -1921,13 +1920,12 @@ bool PeerManagerImpl::GetNodeStateStats(NodeId nodeid, CNodeStateStats& stats) c
 
 void PeerManagerImpl::AddToCompactExtraTransactions(const CTransactionRef& tx)
 {
-    size_t max_extra_txn = gArgs.GetIntArg("-blockreconstructionextratxn", DEFAULT_BLOCK_RECONSTRUCTION_EXTRA_TXN);
-    if (max_extra_txn <= 0)
+    if (m_opts.max_extra_txs <= 0)
         return;
     if (!vExtraTxnForCompact.size())
-        vExtraTxnForCompact.resize(max_extra_txn);
+        vExtraTxnForCompact.resize(m_opts.max_extra_txs);
     vExtraTxnForCompact[vExtraTxnForCompactIt] = std::make_pair(tx->GetInstanceHash(), tx);
-    vExtraTxnForCompactIt = (vExtraTxnForCompactIt + 1) % max_extra_txn;
+    vExtraTxnForCompactIt = (vExtraTxnForCompactIt + 1) % m_opts.max_extra_txs;
 }
 
 void PeerManagerImpl::Misbehaving(Peer& peer, int howmuch, const std::string& message)
@@ -2098,9 +2096,9 @@ std::unique_ptr<PeerManager> PeerManager::make(CConnman& connman, AddrMan& addrm
                                                CDeterministicMNManager& dmnman,
                                                CJWalletManager* cj_walletman,
                                                llmq::CInstantSendManager& isman,
-                                               LLMQContext& llmq_ctx, bool ignore_incoming_txs)
+                                               LLMQContext& llmq_ctx, Options opts)
 {
-    return std::make_unique<PeerManagerImpl>(connman, addrman, banman, dstxman, chainman, pool, mn_metaman, mn_sync, sporkman, chainlocks, clhandler, nodeman, dmnman, cj_walletman, isman, llmq_ctx, ignore_incoming_txs);
+    return std::make_unique<PeerManagerImpl>(connman, addrman, banman, dstxman, chainman, pool, mn_metaman, mn_sync, sporkman, chainlocks, clhandler, nodeman, dmnman, cj_walletman, isman, llmq_ctx, opts);
 }
 
 PeerManagerImpl::PeerManagerImpl(CConnman& connman, AddrMan& addrman, BanMan* banman,
@@ -2113,7 +2111,7 @@ PeerManagerImpl::PeerManagerImpl(CConnman& connman, AddrMan& addrman, BanMan* ba
                                  CDeterministicMNManager& dmnman,
                                  CJWalletManager* cj_walletman,
                                  llmq::CInstantSendManager& isman,
-                                 LLMQContext& llmq_ctx, bool ignore_incoming_txs)
+                                 LLMQContext& llmq_ctx, Options opts)
     : m_chainparams(chainman.GetParams()),
       m_connman(connman),
       m_addrman(addrman),
@@ -2131,11 +2129,11 @@ PeerManagerImpl::PeerManagerImpl(CConnman& connman, AddrMan& addrman, BanMan* ba
       m_sporkman(sporkman),
       m_chainlocks(chainlocks),
       m_clhandler{clhandler},
-      m_ignore_incoming_txs(ignore_incoming_txs)
+      m_opts{opts}
 {
     // While Erlay support is incomplete, it must be enabled explicitly via -txreconciliation.
     // This argument can go away after Erlay support is complete.
-    if (gArgs.GetBoolArg("-txreconciliation", DEFAULT_TXRECONCILIATION_ENABLE)) {
+    if (opts.reconcile_txs) {
         m_txreconciliation = std::make_unique<TxReconciliationTracker>(TXRECONCILIATION_VERSION);
     }
 }
@@ -3245,7 +3243,7 @@ void PeerManagerImpl::HeadersDirectFetchBlocks(CNode& pfrom, const Peer& peer, c
                          last_header.nHeight);
             }
             if (vGetData.size() > 0) {
-                if (!m_ignore_incoming_txs &&
+                if (!m_opts.ignore_incoming_txs &&
                         nodestate->m_provides_cmpctblocks &&
                         vGetData.size() == 1 &&
                         mapBlocksInFlight.size() == 1 &&
@@ -4093,7 +4091,7 @@ void PeerManagerImpl::ProcessMessage(
             // - we are not in -blocksonly mode.
             const auto* tx_relay = peer->GetTxRelay();
             if (tx_relay && WITH_LOCK(tx_relay->m_bloom_filter_mutex, return tx_relay->m_relay_txs) &&
-                !pfrom.IsAddrFetchConn() && !m_ignore_incoming_txs) {
+                !pfrom.IsAddrFetchConn() && !m_opts.ignore_incoming_txs) {
                 const uint64_t recon_salt = m_txreconciliation->PreRegisterPeer(pfrom.GetId());
                 m_connman.PushMessage(&pfrom, msg_maker.Make(NetMsgType::SENDTXRCNCL,
                                                              TXRECONCILIATION_VERSION, recon_salt));
@@ -5002,8 +5000,7 @@ void PeerManagerImpl::ProcessMessage(
                 ForgetTx(tx.GetHash());
 
                 // DoS prevention: do not allow m_orphans to grow unbounded (see CVE-2012-3789)
-                unsigned int nMaxOrphanTxSize = (unsigned int)std::max((int64_t)0, gArgs.GetIntArg("-maxorphantxsize", DEFAULT_MAX_ORPHAN_TRANSACTIONS_SIZE)) * 1000000;
-                m_orphanage.LimitOrphans(nMaxOrphanTxSize);
+                m_orphanage.LimitOrphans(m_opts.max_orphan_txs_size);
             } else {
                 LogPrint(BCLog::MEMPOOL, "not keeping orphan with rejected parents %s\n",tx.GetHash().ToString());
                 // We will continue to reject this tx since it has rejected
@@ -5918,7 +5915,7 @@ bool PeerManagerImpl::ProcessMessages(CNode* pfrom, std::atomic<bool>& interrupt
         msg.m_recv.data()
     );
 
-    if (gArgs.GetBoolArg("-capturemessages", false)) {
+    if (m_opts.capture_messages) {
         CaptureMessage(pfrom->addr, msg.m_type, MakeUCharSpan(msg.m_recv), /*is_incoming=*/true);
     }
 
@@ -6276,7 +6273,7 @@ bool PeerManagerImpl::RejectIncomingTxs(const CNode& peer) const
     if (peer.IsBlockOnlyConn()) return true;
     if (peer.IsFeelerConn()) return true;
     // In -blocksonly mode, peers need the 'relay' permission to send txs to us
-    if (m_ignore_incoming_txs && !peer.HasPermission(NetPermissionFlags::Relay)) return true;
+    if (m_opts.ignore_incoming_txs && !peer.HasPermission(NetPermissionFlags::Relay)) return true;
     return false;
 }
 

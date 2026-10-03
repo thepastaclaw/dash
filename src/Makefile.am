@@ -353,14 +353,17 @@ BITCOIN_CORE_H = \
   node/chainstate.h \
   node/chainstatemanager_args.h \
   node/coin.h \
+  node/coins_view_args.h \
   node/connection_types.h \
   node/context.h \
+  node/database_args.h \
   node/eviction.h \
   node/interface_ui.h \
   node/mempool_args.h \
   node/mempool_persist_args.h \
   node/miner.h \
   node/minisketchwrapper.h \
+  node/peerman_args.h \
   node/psbt.h \
   node/sync_manager.h \
   node/transaction.h \
@@ -630,8 +633,10 @@ libbitcoin_node_a_SOURCES = \
   node/chainstate.cpp \
   node/chainstatemanager_args.cpp \
   node/coin.cpp \
+  node/coins_view_args.cpp \
   node/connection_types.cpp \
   node/context.cpp \
+  node/database_args.cpp \
   node/eviction.cpp \
   node/interface_ui.cpp \
   node/interfaces.cpp \
@@ -639,6 +644,7 @@ libbitcoin_node_a_SOURCES = \
   node/mempool_persist_args.cpp \
   node/miner.cpp \
   node/minisketchwrapper.cpp \
+  node/peerman_args.cpp \
   node/psbt.cpp \
   node/sync_manager.cpp \
   node/transaction.cpp \
@@ -1347,6 +1353,7 @@ libdashkernel_la_SOURCES = \
   netbase.cpp \
   node/blockstorage.cpp \
   node/chainstate.cpp \
+  node/database_args.cpp \
   node/interface_ui.cpp \
   node/transaction.cpp \
   node/utxo_snapshot.cpp \

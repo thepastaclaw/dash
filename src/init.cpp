@@ -56,8 +56,8 @@
 #include <node/mempool_args.h>
 #include <node/mempool_persist_args.h>
 #include <node/miner.h>
+#include <node/peerman_args.h>
 #include <node/sync_manager.h>
-#include <node/txreconciliation.h>
 #include <node/validation_cache_args.h>
 #include <policy/feerate.h>
 #include <policy/fees.h>
@@ -1450,6 +1450,7 @@ bool AppInitParameterInteraction(const ArgsManager& args)
     {
         ChainstateManager::Options chainman_opts_dummy{
             .chainparams = chainparams,
+            .datadir = args.GetDataDirNet(),
         };
         if (const auto error{ApplyArgsManOptions(args, chainman_opts_dummy)}) {
             return InitError(*error);
@@ -1969,6 +1970,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
     bool fReindexChainState = args.GetBoolArg("-reindex-chainstate", false);
     ChainstateManager::Options chainman_opts{
         .chainparams = chainparams,
+        .datadir = args.GetDataDirNet(),
     };
     Assert(!ApplyArgsManOptions(args, chainman_opts)); // no error can happen, already checked in AppInitParameterInteraction
 
@@ -2182,12 +2184,17 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
     }
 #endif
 
+    PeerManager::Options peerman_opts{
+        .ignore_incoming_txs = ignores_incoming_txs,
+    };
+    ApplyArgsManOptions(args, peerman_opts);
+
     assert(!node.peerman);
     node.peerman = PeerManager::make(*node.connman, *node.addrman, node.banman.get(), *node.dstxman,
                                      chainman, *node.mempool, *node.mn_metaman, *node.mn_sync,
                                      *node.sporkman, *node.chainlocks, *node.clhandler,
                                      node.active_ctx ? node.active_ctx->nodeman.get() : nullptr,
-                                     *node.dmnman, node.cj_walletman.get(), *node.isman, *node.llmq_ctx, ignores_incoming_txs);
+                                     *node.dmnman, node.cj_walletman.get(), *node.isman, *node.llmq_ctx, peerman_opts);
     RegisterValidationInterface(node.peerman.get());
 
     node.ds_notification_interface = std::make_unique<CDSNotificationInterface>(
