@@ -1581,8 +1581,8 @@ void PeerManagerImpl::PushNodeVersion(CNode& pnode, const Peer& peer)
 
     const bool tx_relay{!RejectIncomingTxs(pnode)};
     m_connman.PushMessage(&pnode, CNetMsgMaker(INIT_PROTO_VERSION).Make(NetMsgType::VERSION, nProtocolVersion, my_services, nTime,
-                          your_services, WithParams(CNetAddr::V1, addr_you), // Together the pre-version-31402 serialization of CAddress "addrYou" (without nTime)
-                          my_services, WithParams(CNetAddr::V1, CService{}), // Together the pre-version-31402 serialization of CAddress "addrMe" (without nTime)
+                          your_services, CNetAddr::V1(addr_you), // Together the pre-version-31402 serialization of CAddress "addrYou" (without nTime)
+                          my_services, CNetAddr::V1(CService{}), // Together the pre-version-31402 serialization of CAddress "addrMe" (without nTime)
                           nonce, strSubVersion, nNodeStartingHeight, tx_relay, mnauthChallenge, pnode.m_masternode_connection.load()));
 
     if (fLogIPs) {
@@ -3952,7 +3952,7 @@ void PeerManagerImpl::ProcessMessage(
             nTime = 0;
         }
         vRecv.ignore(8); // Ignore the addrMe service bits sent by the peer
-        vRecv >> WithParams(CNetAddr::V1, addrMe);
+        vRecv >> CNetAddr::V1(addrMe);
         if (!pfrom.IsInboundConn())
         {
             // Overwrites potentially existing services. In contrast to this,
