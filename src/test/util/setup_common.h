@@ -8,6 +8,7 @@
 
 #include <chainparamsbase.h>
 #include <key.h>
+#include <net_processing.h>
 #include <node/caches.h>
 #include <node/chainstate.h>
 #include <node/context.h> // IWYU pragma: export
@@ -54,7 +55,7 @@ static constexpr CAmount CENT{1000000};
 std::unique_ptr<PeerManager> MakePeerManager(CConnman& connman,
                                              node::NodeContext& node,
                                              BanMan* banman,
-                                             bool ignore_incoming_txs);
+                                             PeerManager::Options opts);
 
 /** Basic testing setup.
  * This just configures logging, data dir and chain parameters.
