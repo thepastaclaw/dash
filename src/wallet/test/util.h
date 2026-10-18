@@ -10,6 +10,8 @@
 #endif
 
 #include <script/standard.h>
+#include <wallet/db.h>
+
 #include <memory>
 
 class ArgsManager;
@@ -24,6 +26,15 @@ namespace wallet {
 class CWallet;
 struct DatabaseOptions;
 class WalletDatabase;
+
+static const DatabaseFormat DATABASE_FORMATS[] = {
+#ifdef USE_SQLITE
+       DatabaseFormat::SQLITE,
+#endif
+#ifdef USE_BDB
+       DatabaseFormat::BERKELEY,
+#endif
+};
 
 std::unique_ptr<CWallet> CreateSyncedWallet(interfaces::Chain& chain, ChainstateManager& chainman, const CKey& key);
 

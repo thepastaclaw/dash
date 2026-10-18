@@ -709,12 +709,14 @@ void BerkeleyDatabase::ReloadDbEnv()
     env->ReloadDbEnv();
 }
 
-BerkeleyCursor::BerkeleyCursor(BerkeleyDatabase& database)
+BerkeleyCursor::BerkeleyCursor(BerkeleyDatabase& database, const BerkeleyBatch& batch)
 {
     if (!database.m_db.get()) {
         throw std::runtime_error(STR_INTERNAL_BUG("BerkeleyDatabase does not exist"));
     }
-    int ret = database.m_db->cursor(nullptr, &m_cursor, 0);
+    // Transaction argument to cursor is only needed when using the cursor to
+    // write to the database. Read-only cursors do not need a txn pointer.
+    int ret = database.m_db->cursor(batch.txn(), &m_cursor, 0);
     if (ret != 0) {
         throw std::runtime_error(STR_INTERNAL_BUG(strprintf("BDB Cursor could not be created. Returned %d", ret)));
     }
@@ -752,7 +754,7 @@ BerkeleyCursor::~BerkeleyCursor()
 std::unique_ptr<DatabaseCursor> BerkeleyBatch::GetNewCursor()
 {
     if (!pdb) return nullptr;
-    return std::make_unique<BerkeleyCursor>(m_database);
+    return std::make_unique<BerkeleyCursor>(m_database, *this);
 }
 
 bool BerkeleyBatch::TxnBegin()

@@ -159,7 +159,7 @@ private:
     Dbc* m_cursor;
 
 public:
-    explicit BerkeleyCursor(BerkeleyDatabase& database);
+    explicit BerkeleyCursor(BerkeleyDatabase& database, const BerkeleyBatch& batch);
     ~BerkeleyCursor() override;
 
     Status Next(DataStream& key, DataStream& value) override;
