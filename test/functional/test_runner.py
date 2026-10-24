@@ -230,6 +230,8 @@ BASE_SCRIPTS = [
     'wallet_reorgsrestore.py',
     'wallet_watchonly.py --legacy-wallet',
     'wallet_watchonly.py --usecli --legacy-wallet',
+    'wallet_reindex.py --legacy-wallet',
+    'wallet_reindex.py --descriptors',
     'wallet_conflicts.py --legacy-wallet',
     'wallet_conflicts.py --descriptors',
     'interface_http.py',
