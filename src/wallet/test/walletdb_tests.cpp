@@ -9,6 +9,7 @@
 #include <wallet/hdchain.h>
 #include <wallet/test/util.h>
 #include <wallet/test/wallet_test_fixture.h>
+#include <wallet/wallet.h>
 #include <wallet/walletdb.h>
 
 #include <boost/test/unit_test.hpp>
@@ -147,6 +148,32 @@ BOOST_AUTO_TEST_CASE(walletdb_platform_data_corruption_policy)
                 DBErrors::NONCRITICAL_ERROR);
     BOOST_CHECK_EQUAL(platform_data.count("platform/identity/0"), 0U);
     BOOST_CHECK(platform_data.at("platform/intact") == std::vector<unsigned char>({0x01, 0x02}));
+}
+
+BOOST_AUTO_TEST_CASE(walletdb_read_write_deadlock)
+{
+    // Exercises a db read write operation that shouldn't deadlock.
+    for (const DatabaseFormat& db_format : DATABASE_FORMATS) {
+        // Context setup
+        DatabaseOptions options;
+        options.require_format = db_format;
+        DatabaseStatus status;
+        bilingual_str error_string;
+        std::unique_ptr<WalletDatabase> db = MakeDatabase(m_path_root / strprintf("wallet_%d_.dat", db_format).c_str(), options, status, error_string);
+        BOOST_ASSERT(status == DatabaseStatus::SUCCESS);
+
+        std::shared_ptr<CWallet> wallet(new CWallet(m_node.chain.get(), "", std::move(db)));
+        wallet->m_keypool_size = 4;
+
+        // Create legacy spkm
+        LOCK(wallet->cs_wallet);
+        auto legacy_spkm = wallet->GetOrCreateLegacyScriptPubKeyMan();
+        BOOST_CHECK(legacy_spkm->CanGenerateKeys() && legacy_spkm->TopUp());
+        wallet->Flush();
+
+        // Now delete all records, which performs a read write operation.
+        BOOST_CHECK(wallet->GetLegacyScriptPubKeyMan()->DeleteRecords());
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

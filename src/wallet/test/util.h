@@ -29,6 +29,15 @@ struct WalletContext;
 
 const std::string ADDRESS_B58T_UNSPENDABLE = "yXXXXXXXXXXXXXXXXXXXXXXXXXXXVd2rXU";
 
+static const DatabaseFormat DATABASE_FORMATS[] = {
+#ifdef USE_SQLITE
+       DatabaseFormat::SQLITE,
+#endif
+#ifdef USE_BDB
+       DatabaseFormat::BERKELEY,
+#endif
+};
+
 std::unique_ptr<CWallet> CreateSyncedWallet(interfaces::Chain& chain, ChainstateManager& chainman, const CKey& key);
 
 std::shared_ptr<CWallet> TestLoadWallet(WalletContext& context);

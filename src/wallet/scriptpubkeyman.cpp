@@ -2182,23 +2182,7 @@ bool LegacyScriptPubKeyMan::DeleteRecords()
 {
     LOCK(cs_KeyStore);
     WalletBatch batch(m_storage.GetDatabase());
-    // Wrap the legacy-record deletion in a single SQLite transaction. Without
-    // this, EraseRecords cursor-walks the entire DB and every matching row's
-    // Erase auto-commits+fsyncs on its own — legacy wallets with thousands of
-    // KEY/HDPUBKEY/POOL/KEYMETA rows then take minutes instead of milliseconds.
-    if (!batch.TxnBegin()) {
-        WalletLogPrintf("DeleteRecords: TxnBegin failed\n");
-        return false;
-    }
-    if (!batch.EraseRecords(DBKeys::LEGACY_TYPES)) {
-        batch.TxnAbort();
-        return false;
-    }
-    if (!batch.TxnCommit()) {
-        WalletLogPrintf("DeleteRecords: TxnCommit failed\n");
-        return false;
-    }
-    return true;
+    return batch.EraseRecords(DBKeys::LEGACY_TYPES);
 }
 
 util::Result<CTxDestination> DescriptorScriptPubKeyMan::GetNewDestination()
