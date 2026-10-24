@@ -40,9 +40,10 @@ class CInstantSendManager;
 /** Whether transaction reconciliation protocol should be enabled by default. */
 static constexpr bool DEFAULT_TXRECONCILIATION_ENABLE{false};
 /** Default for -maxorphantxsize, maximum size in megabytes the orphan map can grow before entries are removed */
-static const unsigned int DEFAULT_MAX_ORPHAN_TRANSACTIONS_SIZE = 10; // this allows around 100 TXs of max size (and many more of normal size)
-/** Default number of orphan+recently-replaced txn to keep around for block reconstruction */
-static const unsigned int DEFAULT_BLOCK_RECONSTRUCTION_EXTRA_TXN = 100;
+static const uint32_t DEFAULT_MAX_ORPHAN_TRANSACTIONS_SIZE{10}; // this allows around 100 TXs of max size (and many more of normal size)
+/** Default number of non-mempool transactions to keep around for block reconstruction. Includes
+    orphan and rejected transactions. */
+static const uint32_t DEFAULT_BLOCK_RECONSTRUCTION_EXTRA_TXN{100};
 static const bool DEFAULT_PEERBLOOMFILTERS = true;
 static const bool DEFAULT_PEERBLOCKFILTERS = false;
 /** Threshold for marking a node to be discouraged, e.g. disconnected and added to the discouragement filter. */
@@ -153,11 +154,16 @@ class PeerManager : public CValidationInterface, public NetEventsInterface, publ
 {
 public:
     struct Options {
-        /** Whether this node is running in -blocksonly mode */
+        //! Whether this node is running in -blocksonly mode
         bool ignore_incoming_txs{DEFAULT_BLOCKSONLY};
+        //! Whether transaction reconciliation protocol is enabled
         bool reconcile_txs{DEFAULT_TXRECONCILIATION_ENABLE};
+        //! Maximum total size of all orphan transactions kept in memory, in bytes
         uint32_t max_orphan_txs_size{DEFAULT_MAX_ORPHAN_TRANSACTIONS_SIZE * 1000000};
-        size_t max_extra_txs{DEFAULT_BLOCK_RECONSTRUCTION_EXTRA_TXN};
+        //! Number of non-mempool transactions to keep around for block reconstruction. Includes
+        //! orphan and rejected transactions.
+        uint32_t max_extra_txs{DEFAULT_BLOCK_RECONSTRUCTION_EXTRA_TXN};
+        //! Whether all P2P messages are captured to disk
         bool capture_messages{false};
     };
 
