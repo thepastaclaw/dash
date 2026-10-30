@@ -877,6 +877,35 @@ class WalletMigrationTest(BitcoinTestFramework):
         for addr_info in [addr_external, addr_external_with_label]:
             check(addr_info, wallet_solvables)
 
+    def test_preserve_tx_extra_info(self):
+        self.log.info("Test that tx extra data is preserved after migration")
+        def_wallet = self.nodes[0].get_wallet_rpc(self.default_wallet_name)
+
+        # Create and fund wallet
+        wallet = self.create_legacy_wallet("persist_comments")
+        def_wallet.sendtoaddress(wallet.getnewaddress(), 2)
+
+        self.generate(self.nodes[0], 6)
+
+        # Create tx and store an extra comment within it.
+        extra_comment = "don't discard me"
+        original_tx_id = wallet.sendtoaddress(address=wallet.getnewaddress(), amount=1, comment=extra_comment)
+
+        def check_comments():
+            for record in wallet.listtransactions():
+                if record["txid"] == original_tx_id:
+                    assert_equal(record['comment'], extra_comment)
+
+        # Pre-migration verification
+        check_comments()
+        # Migrate
+        wallet.migratewallet()
+        # Post-migration verification
+        check_comments()
+
+        wallet.unloadwallet()
+
+
     def run_test(self):
         self.generate(self.nodes[0], 101)
 
@@ -896,6 +925,7 @@ class WalletMigrationTest(BitcoinTestFramework):
         self.test_hybrid_pubkey()
         self.test_conflict_txs()
         self.test_addressbook()
+        self.test_preserve_tx_extra_info()
 
 if __name__ == '__main__':
     WalletMigrationTest().main()
