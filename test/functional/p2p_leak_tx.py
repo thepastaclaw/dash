@@ -5,7 +5,7 @@
 """Test transaction upload"""
 
 from test_framework.messages import msg_getdata, CInv, MSG_TX
-from test_framework.p2p import p2p_lock, P2PDataStore
+from test_framework.p2p import p2p_lock, P2PDataStore, P2PTxInvStore
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
     assert_equal,
@@ -27,6 +27,7 @@ class P2PLeakTxTest(BitcoinTestFramework):
         self.miniwallet = MiniWallet(self.gen_node)
 
         self.test_tx_in_block()
+        self.test_notfound_on_replaced_tx()
         self.test_notfound_on_unannounced_tx()
 
     def test_tx_in_block(self):
@@ -46,8 +47,37 @@ class P2PLeakTxTest(BitcoinTestFramework):
         inbound_peer.send_and_ping(want_tx)
         assert_equal(inbound_peer.last_message.get("tx").tx.rehash(), txid)
 
+    def test_notfound_on_replaced_tx(self):
+        self.gen_node.disconnect_p2ps()
+        inbound_peer = self.gen_node.add_p2p_connection(P2PTxInvStore())
+
+        self.log.info("Transaction tx_a is broadcast")
+        tx_a = self.miniwallet.send_self_transfer(from_node=self.gen_node)
+        self.bump_mocktime(60)
+        inbound_peer.wait_for_broadcast(txns=[tx_a["txid"]])
+
+        # Dash has no RBF: replace tx_a by mining a conflicting tx_b
+        tx_b = tx_a["tx"]
+        tx_b.vout[0].nValue -= 9000
+        self.generateblock(self.gen_node, output=self.miniwallet.get_address(), transactions=[tx_b.serialize().hex()])
+
+        self.log.info("Re-request of tx_a after replacement is answered with notfound")
+        req_vec = [
+            CInv(t=MSG_TX, h=int(tx_a["txid"], 16)),
+        ]
+        want_tx = msg_getdata()
+        want_tx.inv = req_vec
+        with p2p_lock:
+            inbound_peer.last_message.pop("notfound", None)
+            inbound_peer.last_message.pop("tx", None)
+        inbound_peer.send_and_ping(want_tx)
+
+        assert_equal(inbound_peer.last_message.get("notfound").vec, req_vec)
+        assert "tx" not in inbound_peer.last_message
+
     def test_notfound_on_unannounced_tx(self):
         self.log.info("Check that we don't leak txs to inbound peers that we haven't yet announced to")
+        self.gen_node.disconnect_p2ps()
         inbound_peer = self.gen_node.add_p2p_connection(P2PNode())  # An "attacking" inbound peer
 
         MAX_REPEATS = 100
