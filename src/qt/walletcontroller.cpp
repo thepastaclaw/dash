@@ -569,8 +569,9 @@ void MigrateWalletActivity::migrate(WalletModel* wallet_model)
                 "If this wallet contains any watchonly scripts, a new wallet will be created which contains those watchonly scripts.\n"
                 "If this wallet contains any solvable but not watched scripts, a different and new wallet will be created which contains those scripts.\n\n"
                 "The migration process will create a backup of the wallet before migrating. This backup file will be named "
-                "<wallet name>_<timestamp>.legacy.bak and can be found in the directory for this wallet. In the event of "
-                "an incorrect migration, the backup can be restored with the \"Restore Wallet\" functionality."));
+                "<prefix>_<timestamp>.legacy.bak, where the prefix is the final component of the wallet's canonical path "
+                "(or default_wallet for the unnamed wallet). The backup can be found in the directory for this wallet. "
+                "In the event of an incorrect migration, the backup can be restored with the \"Restore Wallet\" functionality."));
     box.setStandardButtons(QMessageBox::Yes|QMessageBox::Cancel);
     box.setDefaultButton(QMessageBox::Yes);
     if (box.exec() != QMessageBox::Yes) return;

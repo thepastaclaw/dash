@@ -1134,8 +1134,10 @@ static RPCHelpMan migratewallet()
         "\nMigrate the wallet to a descriptor wallet.\n"
         "A new wallet backup will need to be made.\n"
         "\nThe migration process will create a backup of the wallet before migrating. This backup\n"
-        "file will be named <wallet name>_<timestamp>.legacy.bak and can be found in the directory\n"
-        "for this wallet. In the event of an incorrect migration, the backup can be restored using restorewallet."
+        "file will be named <prefix>_<timestamp>.legacy.bak, where the prefix is the final component\n"
+        "of the wallet's canonical path (or default_wallet for the unnamed wallet). The backup can\n"
+        "be found in the directory for this wallet. In the event of an incorrect migration, the\n"
+        "backup can be restored using restorewallet."
         "\nEncrypted wallets must have the passphrase provided as an argument to this call.\n"
         "\nThis RPC may take a long time to complete. Increasing the RPC client timeout is recommended.",
         {
