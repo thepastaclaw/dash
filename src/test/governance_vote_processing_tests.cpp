@@ -91,7 +91,7 @@ struct GovernanceVoteSetup : public TestChainSetup {
     std::string proposal_payment_address;
 
     explicit GovernanceVoteSetup(const char* dip3_params = "-dip3params=109:500") :
-        TestChainSetup(DIP3_ACTIVATION_HEIGHT - 2, ChainType::REGTEST, {dip3_params})
+        TestChainSetup(DIP3_ACTIVATION_HEIGHT - 2, ChainType::REGTEST, {.extra_args = {dip3_params}})
     {
         // A failed BOOST_REQUIRE below throws, and a throwing constructor means no destructor runs.
         // Tear the globals down by hand so one broken invariant here doesn't leave a live tx index
