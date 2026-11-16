@@ -26,7 +26,7 @@ struct TestChainBRRBeforeActivationSetup : public TestChainSetup
     // Force fast DIP3 activation
     TestChainBRRBeforeActivationSetup() :
         TestChainSetup(497, ChainType::REGTEST,
-                       {"-dip3params=30:50", "-testactivationheight=brr@1000", "-testactivationheight=v20@1200", "-testactivationheight=mn_rr@2200"})
+                       {.extra_args = {"-dip3params=30:50", "-testactivationheight=brr@1000", "-testactivationheight=v20@1200", "-testactivationheight=mn_rr@2200"}})
     {
     }
 };
