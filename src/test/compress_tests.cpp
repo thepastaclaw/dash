@@ -4,6 +4,7 @@
 
 #include <compressor.h>
 #include <script/standard.h>
+#include <test/util/random.h>
 #include <test/util/setup_common.h>
 
 #include <stdint.h>
@@ -129,6 +130,41 @@ BOOST_AUTO_TEST_CASE(compress_script_to_uncompressed_pubkey_id)
     BOOST_CHECK_EQUAL(out.size(), 33U);
     BOOST_CHECK_EQUAL(memcmp(out.data() + 1, script.data() + 2, 32), 0); // first 32 chars of CPubKey are copied into out[1:]
     BOOST_CHECK_EQUAL(out[0], 0x04 | (script[65] & 0x01)); // least significant bit (lsb) of last char of pubkey is mapped into out[0]
+}
+
+BOOST_AUTO_TEST_CASE(compress_p2pk_scripts_not_on_curve)
+{
+    // Dash has no XOnlyPubKey: an x coordinate is on the curve iff the compressed pubkey 0x02||x is fully valid
+    std::vector<unsigned char> x_not_on_curve;
+    std::vector<unsigned char> x_as_compressed_pubkey(33, 0x02);
+    do {
+        x_not_on_curve = g_insecure_rand_ctx.randbytes(32);
+        std::copy(x_not_on_curve.begin(), x_not_on_curve.end(), &x_as_compressed_pubkey[1]);
+    } while (CPubKey(x_as_compressed_pubkey).IsFullyValid());
+
+    // Check that P2PK script with uncompressed pubkey [=> OP_PUSH65 <0x04 .....> OP_CHECKSIG]
+    // which is not fully valid (i.e. point is not on curve) can't be compressed
+    std::vector<unsigned char> pubkey_raw(65, 0);
+    pubkey_raw[0] = 4;
+    std::copy(x_not_on_curve.begin(), x_not_on_curve.end(), &pubkey_raw[1]);
+    CPubKey pubkey_not_on_curve(pubkey_raw);
+    assert(pubkey_not_on_curve.IsValid());
+    assert(!pubkey_not_on_curve.IsFullyValid());
+    CScript script = CScript() << ToByteVector(pubkey_not_on_curve) << OP_CHECKSIG;
+    BOOST_CHECK_EQUAL(script.size(), 67U);
+
+    CompressedScript out;
+    bool done = CompressScript(script, out);
+    BOOST_CHECK_EQUAL(done, false);
+
+    // Check that compressed P2PK script with uncompressed pubkey that is not fully
+    // valid (i.e. x coordinate of the pubkey is not on curve) can't be decompressed
+    CompressedScript compressed_script(x_not_on_curve.begin(), x_not_on_curve.end());
+    for (unsigned int compression_id : {4, 5}) {
+        CScript uncompressed_script;
+        bool success = DecompressScript(uncompressed_script, compression_id, compressed_script);
+        BOOST_CHECK_EQUAL(success, false);
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()
