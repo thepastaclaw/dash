@@ -11,18 +11,23 @@ import argparse
 import configparser
 import logging
 import os
+import platform
 import random
 import subprocess
 import sys
 
 
 def get_fuzz_env(*, target, source_dir):
-    return {
+    fuzz_env = {
         'FUZZ': target,
         'UBSAN_OPTIONS':
         f'suppressions={source_dir}/test/sanitizer_suppressions/ubsan:print_stacktrace=1:halt_on_error=1:report_error_type=1',
         "ASAN_OPTIONS": "detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1",
     }
+    if platform.system() == "Windows":
+        # On Windows, `env` option must include valid `SystemRoot`.
+        fuzz_env = {**fuzz_env, 'SystemRoot': os.environ.get('SystemRoot')}
+    return fuzz_env
 
 
 def main():
