@@ -19,12 +19,12 @@
 
 struct TestChain100NoDIP0001Setup : public TestChain100Setup {
     TestChain100NoDIP0001Setup()
-        : TestChain100Setup{ChainType::REGTEST, {"-testactivationheight=dip0001@2000"}} {}
+        : TestChain100Setup{ChainType::REGTEST, {.extra_args = {"-testactivationheight=dip0001@2000"}}} {}
 };
 
 struct TestChain100DIP3Setup : public TestChain100Setup {
     TestChain100DIP3Setup()
-        : TestChain100Setup{ChainType::REGTEST, {"-dip3params=101:500"}} {}
+        : TestChain100Setup{ChainType::REGTEST, {.extra_args = {"-dip3params=101:500"}}} {}
 };
 
 

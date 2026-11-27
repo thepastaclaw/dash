@@ -43,7 +43,7 @@ struct RegisteredMasternodeSetup : public TestChainSetup {
     uint256 protx_hash;
 
     RegisteredMasternodeSetup() :
-        TestChainSetup(DIP3_ACTIVATION_HEIGHT - 2, ChainType::REGTEST, {"-dip3params=109:500"})
+        TestChainSetup(DIP3_ACTIVATION_HEIGHT - 2, ChainType::REGTEST, {.extra_args = {"-dip3params=109:500"}})
     {
         auto utxos = BuildSimpleUtxoMap(m_coinbase_txns);
         // Activate DIP3, then register the masternode

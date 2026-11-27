@@ -882,7 +882,7 @@ BOOST_FIXTURE_TEST_CASE(BasicOutputTypesTest, ListCoinsTestingSetup)
 //! default regtest parameters place far beyond the pinned fixture chains. The
 //! same chain as the evo tests: activation at 109, tip at 108.
 struct AssetLockTestingSetup : public TestChainSetup {
-    AssetLockTestingSetup() : TestChainSetup{107, ChainType::REGTEST, {"-dip3params=109:500"}}
+    AssetLockTestingSetup() : TestChainSetup{107, ChainType::REGTEST, {.extra_args = {"-dip3params=109:500"}}}
     {
         CreateAndProcessBlock({}, GetScriptForRawPubKey(coinbaseKey.GetPubKey()));
         wallet = CreateSyncedWallet(*m_node.chain, *Assert(m_node.chainman), coinbaseKey);
@@ -2080,7 +2080,7 @@ BOOST_FIXTURE_TEST_CASE(ConflictedDescendantReactivationReconcilesInputs, ListCo
     wallet->blockConnected(block_info);
     {
         LOCK(wallet->cs_wallet);
-        BOOST_REQUIRE(wallet->mapWallet.at(child->GetHash()).isConflicted());
+        BOOST_REQUIRE(wallet->mapWallet.at(child->GetHash()).isBlockConflicted());
         BOOST_CHECK(!wallet->IsSpent(parent_outpoint));
     }
 
@@ -2090,7 +2090,7 @@ BOOST_FIXTURE_TEST_CASE(ConflictedDescendantReactivationReconcilesInputs, ListCo
     wallet->blockDisconnected(block_info);
     {
         LOCK(wallet->cs_wallet);
-        BOOST_CHECK(!wallet->mapWallet.at(child->GetHash()).isConflicted());
+        BOOST_CHECK(!wallet->mapWallet.at(child->GetHash()).isBlockConflicted());
         BOOST_CHECK(wallet->IsSpent(parent_outpoint));
     }
     BOOST_CHECK_EQUAL(wallet->CountInputsWithAmount(1 * COIN), 0);

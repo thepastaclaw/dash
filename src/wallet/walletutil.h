@@ -25,6 +25,13 @@ enum WalletFeature
     FEATURE_LATEST = FEATURE_HD
 };
 
+enum class PathDerivationType
+{
+    BIP44_External,
+    BIP44_Internal,
+    DIP0009_CoinJoin,
+};
+
 bool IsFeatureSupported(int wallet_version, int feature_version);
 WalletFeature GetClosestWalletFeature(int version);
 
@@ -109,6 +116,8 @@ public:
     WalletDescriptor() {}
     WalletDescriptor(std::shared_ptr<Descriptor> descriptor, uint64_t creation_time, int32_t range_start, int32_t range_end, int32_t next_index) : descriptor(descriptor), id(DescriptorID(*descriptor)), creation_time(creation_time), range_start(range_start), range_end(range_end), next_index(next_index) { }
 };
+
+WalletDescriptor GenerateWalletDescriptor(const CExtPubKey& master_key, PathDerivationType type);
 } // namespace wallet
 
 #endif // BITCOIN_WALLET_WALLETUTIL_H

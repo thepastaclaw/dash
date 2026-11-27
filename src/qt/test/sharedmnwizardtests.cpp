@@ -1873,7 +1873,7 @@ void SharedMnWizardTests::serviceAddressInUseIsRefused()
 {
     // DIP3 is active at the tip, so the tip's masternode list is what the
     // network checks a registration's service address against
-    TestChainSetup test{107, ChainType::REGTEST, {"-dip3params=109:500"}};
+    TestChainSetup test{107, ChainType::REGTEST, {.extra_args = {"-dip3params=109:500"}}};
     test.mineBlocks(2);
     m_node.setContext(&test.m_node);
     const CBlockIndex* const tip{WITH_LOCK(::cs_main, return test.m_node.chainman->ActiveChain().Tip())};

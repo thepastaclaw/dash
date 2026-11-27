@@ -42,7 +42,7 @@ class RPCTestingSetup : public TestingSetup
 {
 public:
     RPCTestingSetup()
-        : TestingSetup(ChainType::MAIN, {"-deprecatedrpc=legacy_mn"}) {}
+        : TestingSetup(ChainType::MAIN, {.extra_args = {"-deprecatedrpc=legacy_mn"}}) {}
 
     UniValue TransformParams(const UniValue& params, std::vector<std::pair<std::string, bool>> arg_names);
     UniValue CallRPC(std::string args);
@@ -562,7 +562,7 @@ BOOST_AUTO_TEST_CASE(help_example)
     // test different argument types
     const RPCArgList& args = {{"foo", "bar"}, {"b", true}, {"n", 1}};
     BOOST_CHECK_EQUAL(HelpExampleCliNamed("test", args), "> dash-cli -named test foo=bar b=true n=1\n");
-    BOOST_CHECK_EQUAL(HelpExampleRpcNamed("test", args), "> curl --user myusername --data-binary '{\"jsonrpc\": \"1.0\", \"id\": \"curltest\", \"method\": \"test\", \"params\": {\"foo\":\"bar\",\"b\":true,\"n\":1}}' -H 'content-type: application/json;' http://127.0.0.1:8332/\n");
+    BOOST_CHECK_EQUAL(HelpExampleRpcNamed("test", args), "> curl --user myusername --data-binary '{\"jsonrpc\": \"2.0\", \"id\": \"curltest\", \"method\": \"test\", \"params\": {\"foo\":\"bar\",\"b\":true,\"n\":1}}' -H 'content-type: application/json;' http://127.0.0.1:8332/\n");
 
     // test shell escape
     BOOST_CHECK_EQUAL(HelpExampleCliNamed("test", {{"foo", "b'ar"}}), "> dash-cli -named test foo='b'''ar'\n");
@@ -575,7 +575,7 @@ BOOST_AUTO_TEST_CASE(help_example)
     obj_value.pushKV("b", false);
     obj_value.pushKV("n", 1);
     BOOST_CHECK_EQUAL(HelpExampleCliNamed("test", {{"name", obj_value}}), "> dash-cli -named test name='{\"foo\":\"bar\",\"b\":false,\"n\":1}'\n");
-    BOOST_CHECK_EQUAL(HelpExampleRpcNamed("test", {{"name", obj_value}}), "> curl --user myusername --data-binary '{\"jsonrpc\": \"1.0\", \"id\": \"curltest\", \"method\": \"test\", \"params\": {\"name\":{\"foo\":\"bar\",\"b\":false,\"n\":1}}}' -H 'content-type: application/json;' http://127.0.0.1:8332/\n");
+    BOOST_CHECK_EQUAL(HelpExampleRpcNamed("test", {{"name", obj_value}}), "> curl --user myusername --data-binary '{\"jsonrpc\": \"2.0\", \"id\": \"curltest\", \"method\": \"test\", \"params\": {\"name\":{\"foo\":\"bar\",\"b\":false,\"n\":1}}}' -H 'content-type: application/json;' http://127.0.0.1:8332/\n");
 
     // test array params
     UniValue arr_value(UniValue::VARR);
@@ -583,7 +583,7 @@ BOOST_AUTO_TEST_CASE(help_example)
     arr_value.push_back(false);
     arr_value.push_back(1);
     BOOST_CHECK_EQUAL(HelpExampleCliNamed("test", {{"name", arr_value}}), "> dash-cli -named test name='[\"bar\",false,1]'\n");
-    BOOST_CHECK_EQUAL(HelpExampleRpcNamed("test", {{"name", arr_value}}), "> curl --user myusername --data-binary '{\"jsonrpc\": \"1.0\", \"id\": \"curltest\", \"method\": \"test\", \"params\": {\"name\":[\"bar\",false,1]}}' -H 'content-type: application/json;' http://127.0.0.1:8332/\n");
+    BOOST_CHECK_EQUAL(HelpExampleRpcNamed("test", {{"name", arr_value}}), "> curl --user myusername --data-binary '{\"jsonrpc\": \"2.0\", \"id\": \"curltest\", \"method\": \"test\", \"params\": {\"name\":[\"bar\",false,1]}}' -H 'content-type: application/json;' http://127.0.0.1:8332/\n");
 
     // test types don't matter for shell
     BOOST_CHECK_EQUAL(HelpExampleCliNamed("foo", {{"arg", true}}), HelpExampleCliNamed("foo", {{"arg", "true"}}));
@@ -770,6 +770,74 @@ BOOST_AUTO_TEST_CASE(rpc_convert_composite_commands)
     BOOST_CHECK_EQUAL(result[1].size(), 2);
     BOOST_CHECK_EQUAL(result[1][0].get_str(), "minfeerate");
     BOOST_CHECK_EQUAL(result[1][1].get_str(), "avgfeerate");
+}
+
+static void CheckRpc(const std::vector<RPCArg>& params, const UniValue& args, RPCHelpMan::RPCMethodImpl test_impl)
+{
+    auto null_result{RPCResult{RPCResult::Type::NONE, "", "None"}};
+    const RPCHelpMan rpc{"dummy", "dummy description", params, null_result, RPCExamples{""}, test_impl};
+    JSONRPCRequest req;
+    req.params = args;
+
+    rpc.HandleRequest(req);
+}
+
+BOOST_AUTO_TEST_CASE(rpc_arg_helper)
+{
+    constexpr bool DEFAULT_BOOL = true;
+    constexpr auto DEFAULT_STRING = "default";
+    constexpr uint64_t DEFAULT_UINT64_T = 3;
+
+    //! Parameters with which the RPCHelpMan is instantiated
+    const std::vector<RPCArg> params{
+        // Required arg
+        {"req_int", RPCArg::Type::NUM, RPCArg::Optional::NO, ""},
+        {"req_str", RPCArg::Type::STR, RPCArg::Optional::NO, ""},
+        // Default arg
+        {"def_uint64_t", RPCArg::Type::NUM, RPCArg::Default{DEFAULT_UINT64_T}, ""},
+        {"def_string", RPCArg::Type::STR, RPCArg::Default{DEFAULT_STRING}, ""},
+        {"def_bool", RPCArg::Type::BOOL, RPCArg::Default{DEFAULT_BOOL}, ""},
+        // Optional arg without default
+        {"opt_double", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, ""},
+        {"opt_string", RPCArg::Type::STR, RPCArg::Optional::OMITTED, ""}
+    };
+
+    //! Check that `self.Arg` returns the same value as the `request.params` accessors
+    RPCHelpMan::RPCMethodImpl check_positional = [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
+            BOOST_CHECK_EQUAL(self.Arg<int>(0), request.params[0].getInt<int>());
+            BOOST_CHECK_EQUAL(self.Arg<std::string>(1), request.params[1].get_str());
+            BOOST_CHECK_EQUAL(self.Arg<uint64_t>(2), request.params[2].isNull() ? DEFAULT_UINT64_T : request.params[2].getInt<uint64_t>());
+            BOOST_CHECK_EQUAL(self.Arg<std::string>(3), request.params[3].isNull() ? DEFAULT_STRING : request.params[3].get_str());
+            BOOST_CHECK_EQUAL(self.Arg<bool>(4), request.params[4].isNull() ? DEFAULT_BOOL : request.params[4].get_bool());
+            if (!request.params[5].isNull()) {
+                BOOST_CHECK_EQUAL(self.MaybeArg<double>(5).value(), request.params[5].get_real());
+            } else {
+                BOOST_CHECK(!self.MaybeArg<double>(5));
+            }
+            if (!request.params[6].isNull()) {
+                BOOST_CHECK(self.MaybeArg<std::string>(6));
+                BOOST_CHECK_EQUAL(*self.MaybeArg<std::string>(6), request.params[6].get_str());
+            } else {
+                BOOST_CHECK(!self.MaybeArg<std::string>(6));
+            }
+            return UniValue{};
+        };
+    CheckRpc(params, UniValue{JSON(R"([5, "hello", null, null, null, null, null])")}, check_positional);
+    CheckRpc(params, UniValue{JSON(R"([5, "hello", 4, "test", true, 1.23, "world"])")}, check_positional);
+
+    //! Check that `self.Arg` returns the same value when using index and key
+    RPCHelpMan::RPCMethodImpl check_named = [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
+            BOOST_CHECK_EQUAL(self.Arg<int>(0), self.Arg<int>("req_int"));
+            BOOST_CHECK_EQUAL(self.Arg<std::string>(1), self.Arg<std::string>("req_str"));
+            BOOST_CHECK_EQUAL(self.Arg<uint64_t>(2), self.Arg<uint64_t>("def_uint64_t"));
+            BOOST_CHECK_EQUAL(self.Arg<std::string>(3), self.Arg<std::string>("def_string"));
+            BOOST_CHECK_EQUAL(self.Arg<bool>(4), self.Arg<bool>("def_bool"));
+            BOOST_CHECK(self.MaybeArg<double>(5) == self.MaybeArg<double>("opt_double"));
+            BOOST_CHECK(self.MaybeArg<std::string>(6) == self.MaybeArg<std::string>("opt_string"));
+            return UniValue{};
+        };
+    CheckRpc(params, UniValue{JSON(R"([5, "hello", null, null, null, null, null])")}, check_named);
+    CheckRpc(params, UniValue{JSON(R"([5, "hello", 4, "test", true, 1.23, "world"])")}, check_named);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

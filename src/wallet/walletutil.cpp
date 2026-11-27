@@ -4,8 +4,11 @@
 
 #include <wallet/walletutil.h>
 
+#include <chainparams.h>
 #include <common/args.h>
+#include <key_io.h>
 #include <logging.h>
+#include <wallet/hdchain.h>
 
 namespace wallet {
 fs::path GetWalletDir()
@@ -43,4 +46,28 @@ WalletFeature GetClosestWalletFeature(int version)
     }
     return static_cast<WalletFeature>(0);
 }
+
+WalletDescriptor GenerateWalletDescriptor(const CExtPubKey& master_key, PathDerivationType type)
+{
+    int64_t creation_time = GetTime();
+
+    std::string xpub = EncodeExtPubKey(master_key);
+
+    // Build descriptor string
+    std::string desc_prefix = strprintf("pkh(%s/%dh/%dh", xpub, type == PathDerivationType::DIP0009_CoinJoin ? BIP32_PURPOSE_FEATURE : BIP32_PURPOSE_STANDARD, Params().ExtCoinType());
+    if (type == PathDerivationType::DIP0009_CoinJoin) {
+        desc_prefix += "/4h";
+    }
+    std::string desc_suffix = "/*)";
+    std::string internal_path = (type == PathDerivationType::BIP44_Internal) ? "/1" : "/0";
+    std::string desc_str = desc_prefix + "/0h" + internal_path + desc_suffix;
+
+    // Make the descriptor
+    FlatSigningProvider keys;
+    std::string error;
+    std::unique_ptr<Descriptor> desc = Parse(desc_str, keys, error, false);
+    WalletDescriptor w_desc(std::move(desc), creation_time, 0, 0, 0);
+    return w_desc;
+}
+
 } // namespace wallet
