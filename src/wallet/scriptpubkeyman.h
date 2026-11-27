@@ -160,13 +160,6 @@ struct WalletDestination
     std::optional<bool> internal;
 };
 
-enum class PathDerivationType
-{
-    BIP44_External,
-    BIP44_Internal,
-    DIP0009_CoinJoin,
-};
-
 /*
  * A class implementing ScriptPubKeyMan manages some (or all) scriptPubKeys used in a wallet.
  * It contains the scripts and keys related to the scriptPubKeys it manages.
@@ -663,6 +656,9 @@ public:
     bool SetupDescriptor(std::unique_ptr<Descriptor>desc);
 
     bool HavePrivateKeys() const override;
+    bool HasPrivKey(const CKeyID& keyid) const EXCLUSIVE_LOCKS_REQUIRED(cs_desc_man);
+    //! Retrieve the particular key if it is available. Returns nullopt if the key is not in the wallet, or if the wallet is locked.
+    std::optional<CKey> GetKey(const CKeyID& keyid) const EXCLUSIVE_LOCKS_REQUIRED(cs_desc_man);
 
     std::optional<int64_t> GetOldestKeyPoolTime() const override;
     unsigned int GetKeyPoolSize() const override;
@@ -702,7 +698,7 @@ public:
     std::unordered_set<CScript, SaltedSipHasher> GetScriptPubKeys(int32_t minimum_index) const;
     int32_t GetEndRange() const;
 
-    bool GetDescriptorString(std::string& out, const bool priv) const;
+    [[nodiscard]] bool GetDescriptorString(std::string& out, const bool priv) const;
     bool GetMnemonicString(SecureString& mnemonic_out, SecureString& mnemonic_passphrase_out) const;
 
     void UpgradeDescriptorCache();

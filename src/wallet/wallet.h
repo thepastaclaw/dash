@@ -1235,6 +1235,7 @@ public:
 
     //! Returns all unique ScriptPubKeyMans in m_internal_spk_managers and m_external_spk_managers
     std::set<ScriptPubKeyMan*> GetActiveScriptPubKeyMans() const;
+    bool IsActiveScriptPubKeyMan(const ScriptPubKeyMan& spkm) const;
 
     //! Returns all unique ScriptPubKeyMans
     std::set<ScriptPubKeyMan*> GetAllScriptPubKeyMans() const;
@@ -1304,6 +1305,8 @@ public:
     //! @param[in] internal Whether this ScriptPubKeyMan provides change addresses
     void DeactivateScriptPubKeyMan(uint256 id, bool internal);
 
+    //! Create new DescriptorScriptPubKeyMan and add it to the wallet
+    DescriptorScriptPubKeyMan& SetupDescriptorScriptPubKeyMan(const CExtKey& master_key, const SecureString& mnemonic, const SecureString& mnemonic_passphrase, PathDerivationType type) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     //! Create new DescriptorScriptPubKeyMans and add them to the wallet
     void SetupDescriptorScriptPubKeyMans(const CExtKey& master_key, const SecureString& mnemonic, const SecureString mnemonic_passphrase) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     void SetupDescriptorScriptPubKeyMans(const SecureString& mnemonic, const SecureString mnemonic_passphrase) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
@@ -1335,6 +1338,13 @@ public:
 
     //! Whether the (external) signer performs R-value signature grinding
     bool CanGrindR() const;
+
+    //! Retrieve the xpubs in use by the active descriptors
+    std::set<CExtPubKey> GetActiveHDPubKeys() const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+
+    //! Find the private key for the given key id from the wallet's descriptors, if available
+    //! Returns nullopt when no descriptor has the key or if the wallet is locked.
+    std::optional<CKey> GetKey(const CKeyID& keyid) const;
 };
 
 /**
