@@ -40,7 +40,7 @@ enum class ChainType;
 
 namespace {
 struct RPCFuzzTestingSetup : public TestingSetup {
-    RPCFuzzTestingSetup(const ChainType chain_type, const std::vector<const char*>& extra_args) : TestingSetup{chain_type, extra_args}
+    RPCFuzzTestingSetup(const ChainType chain_type, TestOpts opts) : TestingSetup{chain_type, opts}
     {
         m_node.govman = std::make_unique<CGovernanceManager>(m_args.GetDataDirNet(), *m_node.mn_metaman,
                                                              *m_node.chainman, *m_node.sbman, *m_node.dmnman,

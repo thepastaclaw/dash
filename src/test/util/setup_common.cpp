@@ -160,9 +160,9 @@ static void ExitFailure(std::string_view str_err)
     exit(EXIT_FAILURE);
 }
 
-BasicTestingSetup::BasicTestingSetup(const ChainType chainType, const std::vector<const char*>& extra_args, bool dash_dbs_in_memory)
+BasicTestingSetup::BasicTestingSetup(const ChainType chainType, TestOpts opts)
     : m_args{},
-      m_dash_dbs_in_memory{dash_dbs_in_memory}
+      m_dash_dbs_in_memory{opts.dash_dbs_in_memory}
 {
     m_node.args = &gArgs;
     std::vector<const char*> arguments = Cat(
@@ -177,7 +177,7 @@ BasicTestingSetup::BasicTestingSetup(const ChainType chainType, const std::vecto
             "-debugexclude=libevent",
             "-debugexclude=leveldb",
         },
-        extra_args);
+        opts.extra_args);
     if (G_TEST_COMMAND_LINE_ARGUMENTS) {
         arguments = Cat(arguments, G_TEST_COMMAND_LINE_ARGUMENTS());
     }
@@ -310,8 +310,8 @@ BasicTestingSetup::~BasicTestingSetup()
     m_node.args = nullptr;
 }
 
-ChainTestingSetup::ChainTestingSetup(const ChainType chainType, const std::vector<const char*>& extra_args, bool dash_dbs_in_memory)
-    : BasicTestingSetup(chainType, extra_args, dash_dbs_in_memory)
+ChainTestingSetup::ChainTestingSetup(const ChainType chainType, TestOpts opts)
+    : BasicTestingSetup(chainType, opts)
 {
     const CChainParams& chainparams = Params();
 
@@ -466,14 +466,11 @@ void ChainTestingSetup::LoadVerifyActivateChainstate()
 
 TestingSetup::TestingSetup(
     const ChainType chainType,
-    const std::vector<const char*>& extra_args,
-    const bool coins_db_in_memory,
-    const bool block_tree_db_in_memory,
-    const bool dash_dbs_in_memory)
-    : ChainTestingSetup(chainType, extra_args, dash_dbs_in_memory)
+    TestOpts opts)
+    : ChainTestingSetup(chainType, opts)
 {
-    m_coins_db_in_memory = coins_db_in_memory;
-    m_block_tree_db_in_memory = block_tree_db_in_memory;
+    m_coins_db_in_memory = opts.coins_db_in_memory;
+    m_block_tree_db_in_memory = opts.block_tree_db_in_memory;
     // Ideally we'd move all the RPC tests to the functional testing framework
     // instead of unit tests, but for now we need these here.
     RegisterAllCoreRPCCommands(tableRPC);
@@ -543,23 +540,17 @@ TestingSetup::~TestingSetup()
 }
 
 TestChain100Setup::TestChain100Setup(
-        const ChainType chain_type,
-        const std::vector<const char*>& extra_args,
-        const bool coins_db_in_memory,
-        const bool block_tree_db_in_memory,
-        const bool dash_dbs_in_memory)
-    : TestChainSetup{100, chain_type, extra_args, coins_db_in_memory, block_tree_db_in_memory, dash_dbs_in_memory}
+    const ChainType chain_type,
+    TestOpts opts)
+    : TestChainSetup{100, chain_type, opts}
 {
 }
 
 TestChainSetup::TestChainSetup(
-        int num_blocks,
-        const ChainType chain_type,
-        const std::vector<const char*>& extra_args,
-        const bool coins_db_in_memory,
-        const bool block_tree_db_in_memory,
-        const bool dash_dbs_in_memory)
-    : TestingSetup{chain_type, extra_args, coins_db_in_memory, block_tree_db_in_memory, dash_dbs_in_memory}
+    int num_blocks,
+    const ChainType chain_type,
+    TestOpts opts)
+    : TestingSetup{chain_type, opts}
 {
     SetMockTime(1598887952);
     constexpr std::array<unsigned char, 32> vchKey = {
@@ -608,10 +599,8 @@ constexpr int V19_ACTIVATION_HEIGHT{109};
 TestChainV19BeforeActivationSetup::TestChainV19BeforeActivationSetup() :
     TestChainSetup{V19_ACTIVATION_HEIGHT - 6,
                    ChainType::REGTEST,
-                   {"-dip3params=100:500", "-testactivationheight=v19@109", "-testactivationheight=v20@109",
-                    "-testactivationheight=mn_rr@109"},
-                   /*coins_db_in_memory=*/true,
-                   /*block_tree_db_in_memory=*/true}
+                   {.extra_args = {"-dip3params=100:500", "-testactivationheight=v19@109", "-testactivationheight=v20@109",
+                                   "-testactivationheight=mn_rr@109"}}}
 {
     assert(WITH_LOCK(::cs_main, return !DeploymentActiveAfter(m_node.chainman->ActiveChain().Tip(), m_node.chainman->GetConsensus(),
                                                                Consensus::DEPLOYMENT_V19)));

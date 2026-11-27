@@ -210,8 +210,8 @@ BOOST_FIXTURE_TEST_CASE(qfcommit_with_more_signers_replaces_stored_one, TestChai
 struct PreV19Setup : public TestChain100Setup {
     PreV19Setup() :
         TestChain100Setup{ChainType::REGTEST,
-                          {"-testactivationheight=v19@1000", "-testactivationheight=v20@1000",
-                           "-testactivationheight=mn_rr@1000"}}
+                          {.extra_args = {"-testactivationheight=v19@1000", "-testactivationheight=v20@1000",
+                                          "-testactivationheight=mn_rr@1000"}}}
     {
     }
 };

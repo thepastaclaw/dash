@@ -450,7 +450,7 @@ struct CommitmentSchemeSetup : public TestChainSetup {
     CBLSSecretKey operator_key;
 
     CommitmentSchemeSetup() :
-        TestChainSetup{101, ChainType::REGTEST, {"-dip3params=2:500", "-testactivationheight=v19@150", "-llmqtestparams=1:1"}}
+        TestChainSetup{101, ChainType::REGTEST, {.extra_args = {"-dip3params=2:500", "-testactivationheight=v19@150", "-llmqtestparams=1:1"}}}
     {
         // Two coinbases have to be mature before a 1000 DASH collateral can be funded.
         mineBlocks(8);
