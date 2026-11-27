@@ -439,8 +439,8 @@ private:
      *  spender re-entered the mempool or a block — is erased and unlocked.
      *
      *  @param[in] tx         Transaction whose inputs to reconsider
-     *  @param[in] batch      Batch to write coin-lock updates to */
-    void ReconcileWalletUTXOs(const CTransactionRef& tx, WalletBatch& batch) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+     *  @param[in] batch      Batch to write coin-lock updates to, or nullptr to only update them in memory */
+    void ReconcileWalletUTXOs(const CTransactionRef& tx, WalletBatch* batch) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     mutable std::map<COutPoint, int> mapOutpointRoundsCache GUARDED_BY(cs_wallet);
 
     /**
@@ -470,6 +470,7 @@ private:
 
     /** Mark a transaction (and its in-wallet descendants) as a particular tx state. */
     void RecursiveUpdateTxState(const uint256& tx_hash, const TryUpdatingStateFn& try_updating_state) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    void RecursiveUpdateTxState(WalletBatch* batch, const uint256& tx_hash, const TryUpdatingStateFn& try_updating_state) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
     /** Mark a transaction's inputs dirty, thus forcing the outputs to be recomputed */
     void MarkInputsDirty(const CTransactionRef& tx) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
@@ -681,11 +682,6 @@ public:
      * referenced in transaction, and might cause assert failures.
      */
     int GetTxDepthInMainChain(const CWalletTx& wtx) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
-    bool IsTxInMainChain(const CWalletTx& wtx) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet)
-    {
-        AssertLockHeld(cs_wallet);
-        return GetTxDepthInMainChain(wtx) > 0;
-    }
 
     bool IsTxLockedByInstantSend(const CWalletTx& wtx) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     bool IsTxChainLocked(const CWalletTx& wtx) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);

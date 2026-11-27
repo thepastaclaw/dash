@@ -50,6 +50,10 @@ static void WalletTxToJSON(const CWallet& wallet, const CWalletTx& wtx, UniValue
     for (const uint256& conflict : wallet.GetTxConflicts(wtx))
         conflicts.push_back(conflict.GetHex());
     entry.pushKV("walletconflicts", conflicts);
+    UniValue mempool_conflicts(UniValue::VARR);
+    for (const Txid& mempool_conflict : wtx.mempool_conflicts)
+        mempool_conflicts.push_back(mempool_conflict.GetHex());
+    entry.pushKV("mempoolconflicts", mempool_conflicts);
     entry.pushKV("time", wtx.GetTxTime());
     entry.pushKV("timereceived", int64_t{wtx.nTimeReceived});
 
@@ -430,6 +434,10 @@ static std::vector<RPCResult> TransactionDescriptionString()
            {RPCResult::Type::NUM_TIME, "blocktime", /*optional=*/true, "The block time expressed in " + UNIX_EPOCH_TIME + "."},
            {RPCResult::Type::STR_HEX, "txid", "The transaction id. Available for 'send' and 'receive' category of transactions."},
            {RPCResult::Type::ARR, "walletconflicts", "Conflicting transaction ids.",
+           {
+               {RPCResult::Type::STR_HEX, "txid", "The transaction id."},
+           }},
+           {RPCResult::Type::ARR, "mempoolconflicts", "Transactions that directly conflict with either this transaction or an ancestor transaction",
            {
                {RPCResult::Type::STR_HEX, "txid", "The transaction id."},
            }},

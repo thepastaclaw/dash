@@ -30,6 +30,9 @@ class TxConflicts(BitcoinTestFramework):
         return next(tx_out["vout"] for tx_out in self.nodes[0].gettransaction(from_tx_id)["details"] if tx_out["amount"] == Decimal(f"{search_value}"))
 
     def run_test(self):
+        self.test_block_conflicts()
+
+    def test_block_conflicts(self):
         self.log.info("Send tx from which to conflict outputs later")
         txid_conflict_from_1 = self.nodes[0].sendtoaddress(self.nodes[0].getnewaddress(), Decimal("10"))
         txid_conflict_from_2 = self.nodes[0].sendtoaddress(self.nodes[0].getnewaddress(), Decimal("10"))

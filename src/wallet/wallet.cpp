@@ -846,8 +846,8 @@ bool CWallet::IsSpent(const COutPoint& outpoint) const
         const uint256& wtxid = it->second;
         const auto mit = mapWallet.find(wtxid);
         if (mit != mapWallet.end()) {
-            int depth = GetTxDepthInMainChain(mit->second);
-            if (depth > 0  || (depth == 0 && !mit->second.isAbandoned()))
+            const auto& wtx = mit->second;
+            if (!wtx.isAbandoned() && !wtx.isBlockConflicted() && !wtx.isMempoolConflicted())
                 return true; // Spent
         }
     }
@@ -1179,7 +1179,7 @@ CWalletTx* CWallet::AddToWallet(CTransactionRef tx, const TxState& state, const 
             // spends its inputs again; take the outpoints
             // ReconcileWalletUTXOs() restored on abandonment back out of the
             // wallet UTXO set (AddToSpends() only ran on first insertion).
-            ReconcileWalletUTXOs(wtx.tx, batch);
+            ReconcileWalletUTXOs(wtx.tx, &batch);
         } else {
             assert(TxStateSerializedIndex(wtx.m_state) == TxStateSerializedIndex(state));
             assert(TxStateSerializedBlockHash(wtx.m_state) == TxStateSerializedBlockHash(state));
@@ -1208,7 +1208,7 @@ CWalletTx* CWallet::AddToWallet(CTransactionRef tx, const TxState& state, const 
             desc_tx->MarkDirty();
             batch.WriteTx(*desc_tx);
             MarkInputsDirty(desc_tx->tx);
-            ReconcileWalletUTXOs(desc_tx->tx, batch);
+            ReconcileWalletUTXOs(desc_tx->tx, &batch);
             for (unsigned int i = 0; i < desc_tx->tx->vout.size(); ++i) {
                 COutPoint outpoint(desc_tx->GetHash(), i);
                 std::pair<TxSpends::const_iterator, TxSpends::const_iterator> range = mapTxSpends.equal_range(outpoint);
@@ -1290,7 +1290,7 @@ bool CWallet::LoadToWallet(const uint256& hash, const UpdateWalletTxFn& fill_wtx
         auto it = mapWallet.find(txin.prevout.hash);
         if (it != mapWallet.end()) {
             CWalletTx& prevtx = it->second;
-            if (auto* prev = prevtx.state<TxStateConflicted>()) {
+            if (auto* prev = prevtx.state<TxStateBlockConflicted>()) {
                 MarkConflicted(prev->conflicting_block_hash, prev->conflicting_block_height, wtx.GetHash());
             }
         }
@@ -1318,7 +1318,7 @@ std::set<COutPoint> CWallet::AddWalletUTXOs(CTransactionRef tx, bool ret_dups)
     return ret;
 }
 
-void CWallet::ReconcileWalletUTXOs(const CTransactionRef& tx, WalletBatch& batch)
+void CWallet::ReconcileWalletUTXOs(const CTransactionRef& tx, WalletBatch* batch)
 {
     AssertLockHeld(cs_wallet);
     std::set<COutPoint> restored;
@@ -1328,7 +1328,7 @@ void CWallet::ReconcileWalletUTXOs(const CTransactionRef& tx, WalletBatch& batch
         if (!IsMine(it->second.tx->vout[txin.prevout.n])) continue;
         if (IsSpent(txin.prevout)) {
             setWalletUTXO.erase(txin.prevout);
-            UnlockCoin(txin.prevout, &batch);
+            UnlockCoin(txin.prevout, batch);
         } else if (setWalletUTXO.insert(txin.prevout).second) {
             restored.insert(txin.prevout);
         }
@@ -1336,11 +1336,11 @@ void CWallet::ReconcileWalletUTXOs(const CTransactionRef& tx, WalletBatch& batch
     if (restored.empty()) return;
     // AddToSpends() unlocked these outpoints when the spend appeared; reapply
     // the automatic protections a wallet reload would.
-    LockProTxCoins(restored, &batch);
+    LockProTxCoins(restored, batch);
     if (m_dust_protection_threshold > 0) {
         for (const COutPoint& outpoint : restored) {
             if (IsDustProtectionTarget(mapWallet.at(outpoint.hash), outpoint.n)) {
-                LockCoin(outpoint, &batch);
+                LockCoin(outpoint, batch);
             }
         }
     }
@@ -1460,7 +1460,7 @@ bool CWallet::AbandonTransaction(const uint256& hashTx)
         assert(!wtx.isConfirmed());
         assert(!wtx.InMempool());
         // If already conflicted or abandoned, no need to set abandoned
-        if (!wtx.isConflicted() && !wtx.isAbandoned()) {
+        if (!wtx.isBlockConflicted() && !wtx.isAbandoned()) {
             wtx.m_state = TxStateInactive{/*abandoned=*/true};
             return TxUpdate::NOTIFY_CHANGED;
         }
@@ -1512,7 +1512,7 @@ void CWallet::MarkConflicted(const uint256& hashBlock, int conflicting_height, c
         if (conflictconfirms < GetTxDepthInMainChain(wtx)) {
             // Block is 'more conflicted' than current confirm; update.
             // Mark transaction as conflicted with this block.
-            wtx.m_state = TxStateConflicted{hashBlock, conflicting_height};
+            wtx.m_state = TxStateBlockConflicted{hashBlock, conflicting_height};
             return TxUpdate::CHANGED;
         }
         return TxUpdate::UNCHANGED;
@@ -1526,7 +1526,10 @@ void CWallet::MarkConflicted(const uint256& hashBlock, int conflicting_height, c
 void CWallet::RecursiveUpdateTxState(const uint256& tx_hash, const TryUpdatingStateFn& try_updating_state) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet) {
     // Do not flush the wallet here for performance reasons
     WalletBatch batch(GetDatabase(), false);
+    RecursiveUpdateTxState(&batch, tx_hash, try_updating_state);
+}
 
+void CWallet::RecursiveUpdateTxState(WalletBatch* batch, const uint256& tx_hash, const TryUpdatingStateFn& try_updating_state) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet) {
     std::set<uint256> todo;
     std::set<uint256> done;
 
@@ -1543,7 +1546,7 @@ void CWallet::RecursiveUpdateTxState(const uint256& tx_hash, const TryUpdatingSt
         TxUpdate update_state = try_updating_state(wtx);
         if (update_state != TxUpdate::UNCHANGED) {
             wtx.MarkDirty();
-            batch.WriteTx(wtx);
+            if (batch) batch->WriteTx(wtx);
             // Iterate over all its outputs, and update those tx states as well (if applicable)
             for (unsigned int i = 0; i < wtx.tx->vout.size(); ++i) {
                 std::pair<TxSpends::const_iterator, TxSpends::const_iterator> range = mapTxSpends.equal_range(COutPoint(now, i));
@@ -1593,6 +1596,20 @@ void CWallet::transactionAddedToMempool(const CTransactionRef& tx, int64_t nAcce
     if (it != mapWallet.end()) {
         RefreshMempoolStatus(it->second, chain());
     }
+
+    const Txid& txid = tx->GetHash();
+
+    for (const CTxIn& tx_in : tx->vin) {
+        // For each wallet transaction spending this prevout..
+        for (auto range = mapTxSpends.equal_range(tx_in.prevout); range.first != range.second; range.first++) {
+            const uint256& spent_id = range.first->second;
+            // Skip the recently added tx
+            if (spent_id == txid) continue;
+            RecursiveUpdateTxState(/*batch=*/nullptr, spent_id, [&txid](CWalletTx& wtx) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet) {
+                return wtx.mempool_conflicts.insert(txid).second ? TxUpdate::CHANGED : TxUpdate::UNCHANGED;
+            });
+        }
+    }
 }
 
 void CWallet::transactionRemovedFromMempool(const CTransactionRef& tx, MemPoolRemovalReason reason) {
@@ -1638,6 +1655,22 @@ void CWallet::transactionRemovedFromMempool(const CTransactionRef& tx, MemPoolRe
         LOCK(cs_wallet);
         WalletBatch batch(GetDatabase());
         SyncTransaction(tx, TxStateInactive{}, batch);
+    }
+
+    LOCK(cs_wallet);
+    const Txid& txid = tx->GetHash();
+
+    for (const CTxIn& tx_in : tx->vin) {
+        // Iterate over all wallet transactions spending txin.prev
+        // and recursively mark them as no longer conflicting with
+        // txid
+        for (auto range = mapTxSpends.equal_range(tx_in.prevout); range.first != range.second; range.first++) {
+            const uint256& spent_id = range.first->second;
+
+            RecursiveUpdateTxState(/*batch=*/nullptr, spent_id, [&txid](CWalletTx& wtx) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet) {
+                return wtx.mempool_conflicts.erase(txid) ? TxUpdate::CHANGED : TxUpdate::UNCHANGED;
+            });
+        }
     }
 }
 
@@ -1697,11 +1730,11 @@ void CWallet::blockDisconnected(const interfaces::BlockInfo& block)
             for (TxSpends::const_iterator _it = range.first; _it != range.second; ++_it) {
                 CWalletTx& wtx = mapWallet.find(_it->second)->second;
 
-                if (!wtx.isConflicted()) continue;
+                if (!wtx.isBlockConflicted()) continue;
 
                 auto try_updating_state = [&](CWalletTx& tx) {
-                    if (!tx.isConflicted()) return TxUpdate::UNCHANGED;
-                    if (tx.state<TxStateConflicted>()->conflicting_block_height >= disconnect_height) {
+                    if (!tx.isBlockConflicted()) return TxUpdate::UNCHANGED;
+                    if (tx.state<TxStateBlockConflicted>()->conflicting_block_height >= disconnect_height) {
                         tx.m_state = TxStateInactive{};
                         return TxUpdate::CHANGED;
                     }
@@ -2613,7 +2646,7 @@ util::Result<void> CWallet::CommitTransaction(CTransactionRef tx, mapValue_t map
         abandoned.mapValue.clear();
         abandoned.vOrderForm.clear();
         WalletBatch batch{GetDatabase()};
-        ReconcileWalletUTXOs(abandoned.tx, batch);
+        ReconcileWalletUTXOs(abandoned.tx, &batch);
     }
 
     // Add tx to wallet, because if it has change it's also ours,
@@ -3270,7 +3303,7 @@ unsigned int CWallet::ComputeTimeSmart(const CWalletTx& wtx, bool rescanning_old
     std::optional<uint256> block_hash;
     if (auto* conf = wtx.state<TxStateConfirmed>()) {
         block_hash = conf->confirmed_block_hash;
-    } else if (auto* conf = wtx.state<TxStateConflicted>()) {
+    } else if (auto* conf = wtx.state<TxStateBlockConflicted>()) {
         block_hash = conf->conflicting_block_hash;
     }
 
@@ -4386,7 +4419,7 @@ PlatformKeyResult<std::vector<AssetLockFunding>> CWallet::ListAssetLockFundings(
         const auto payload{GetTxPayload<CAssetLockPayload>(*wtx->tx)};
         if (!payload) continue;
         AssetLockFundingStatus status{AssetLockFundingStatus::ACTIVE};
-        if (wtx->isConflicted()) {
+        if (wtx->isBlockConflicted()) {
             status = AssetLockFundingStatus::CONFLICTED;
         } else if (wtx->isAbandoned()) {
             status = AssetLockFundingStatus::INACTIVE;
@@ -4431,7 +4464,7 @@ int CWallet::GetTxDepthInMainChain(const CWalletTx& wtx) const
     if (auto* conf = wtx.state<TxStateConfirmed>()) {
         assert(conf->confirmed_block_height >= 0);
         return GetLastBlockHeight() - conf->confirmed_block_height + 1;
-    } else if (auto* conf = wtx.state<TxStateConflicted>()) {
+    } else if (auto* conf = wtx.state<TxStateBlockConflicted>()) {
         assert(conf->conflicting_block_height >= 0);
         return -1 * (GetLastBlockHeight() - conf->conflicting_block_height + 1);
     } else {

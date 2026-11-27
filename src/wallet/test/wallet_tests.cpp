@@ -2080,7 +2080,7 @@ BOOST_FIXTURE_TEST_CASE(ConflictedDescendantReactivationReconcilesInputs, ListCo
     wallet->blockConnected(block_info);
     {
         LOCK(wallet->cs_wallet);
-        BOOST_REQUIRE(wallet->mapWallet.at(child->GetHash()).isConflicted());
+        BOOST_REQUIRE(wallet->mapWallet.at(child->GetHash()).isBlockConflicted());
         BOOST_CHECK(!wallet->IsSpent(parent_outpoint));
     }
 
@@ -2090,7 +2090,7 @@ BOOST_FIXTURE_TEST_CASE(ConflictedDescendantReactivationReconcilesInputs, ListCo
     wallet->blockDisconnected(block_info);
     {
         LOCK(wallet->cs_wallet);
-        BOOST_CHECK(!wallet->mapWallet.at(child->GetHash()).isConflicted());
+        BOOST_CHECK(!wallet->mapWallet.at(child->GetHash()).isBlockConflicted());
         BOOST_CHECK(wallet->IsSpent(parent_outpoint));
     }
     BOOST_CHECK_EQUAL(wallet->CountInputsWithAmount(1 * COIN), 0);
