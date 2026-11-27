@@ -1163,7 +1163,7 @@ private:
     std::vector<std::unique_ptr<NetHandler>> m_handlers;
 };
 
-const CNodeState* PeerManagerImpl::State(NodeId pnode) const EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+const CNodeState* PeerManagerImpl::State(NodeId pnode) const
 {
     std::map<NodeId, CNodeState>::const_iterator it = m_node_states.find(pnode);
     if (it == m_node_states.end())
@@ -1171,7 +1171,7 @@ const CNodeState* PeerManagerImpl::State(NodeId pnode) const EXCLUSIVE_LOCKS_REQ
     return &it->second;
 }
 
-CNodeState* PeerManagerImpl::State(NodeId pnode) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+CNodeState* PeerManagerImpl::State(NodeId pnode)
 {
     return const_cast<CNodeState*>(std::as_const(*this).State(pnode));
 }
